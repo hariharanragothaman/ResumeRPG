@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { PIXEL_FONT_URL, THEMES, type ThemeName } from "@/lib/config";
 import { Starfield } from "@/components/Starfield";
 
@@ -22,11 +23,15 @@ export function Layout({ children, theme = "fantasy" }: { children: ReactNode; t
         button:hover{filter:brightness(1.08)}
         *{box-sizing:border-box}
       `}</style>
-      <div style={{ minHeight: "100vh", background: T.pageBg, color: T.text, position: "relative" }}>
+      <div style={{ minHeight: "100vh", background: T.pageBg, color: T.text, position: "relative", display: "flex", flexDirection: "column" }}>
         {!T.light && <Starfield />}
-        <div style={{ position: "relative", zIndex: 1 }}>
+        <div style={{ position: "relative", zIndex: 1, flex: 1 }}>
           <main>{children}</main>
         </div>
+        <footer style={{ position: "relative", zIndex: 1, textAlign: "center", padding: "24px 16px 20px", fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: T.textDark }}>
+          © {new Date().getFullYear()} ResumeRPG{" · "}
+          <Link to="/privacy" style={{ color: T.textMuted, textDecoration: "none" }}>Privacy Policy</Link>
+        </footer>
       </div>
     </>
   );
