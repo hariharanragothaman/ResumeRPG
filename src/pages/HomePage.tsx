@@ -250,10 +250,6 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
                     {provider === "anthropic" ? "Uses Claude Opus 4.6." : "Uses GPT-4.1."}{" "}
                     Key stays in your browser — never sent to our server.
                   </p>
-                  <p style={{ fontFamily: T.bodyFont, fontSize: 10, color: T.textDim, margin: "0 0 8px", lineHeight: 1.5 }}>
-                    🔒 Your key is stored in session storage and cleared when you close this tab.
-                    API calls go directly from your browser to {provider === "anthropic" ? "Anthropic" : "OpenAI"} — our server never sees your key.
-                  </p>
                   <input type="password" value={clientApiKey} onChange={(e) => setClientApiKey(e.target.value)}
                     placeholder={provider === "anthropic" ? "sk-ant-..." : "sk-..."}
                     style={{ width: "100%", background: T.light ? "white" : "rgba(10,10,26,0.8)", color: T.text, border: "1px solid " + T.surfaceBorder, borderRadius: 8, padding: "10px 12px", fontFamily: T.bodyFont, fontSize: 13 }}

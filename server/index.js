@@ -1,25 +1,120 @@
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
-import { createClient } from "@supabase/supabase-js";
 import cors from "cors";
 import express from "express";
-import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 
-const PORT = Number(process.env.API_PORT || 8787);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.PORT || process.env.API_PORT || 8787);
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+const IS_PROD = process.env.NODE_ENV === "production";
 
+// ─── Allowed origins ────────────────────────────────────────────────
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+if (!IS_PROD) {
+  ALLOWED_ORIGINS.push("http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173");
+}
+
+// ─── Rate limiter (in-memory — swap to Redis/Upstash later) ─────────
+const rateBuckets = new Map();
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+const RATE_MAX_GENERATE = Number(process.env.RATE_LIMIT_GENERATE || 10);
+const RATE_MAX_SHARE = Number(process.env.RATE_LIMIT_SHARE || 30);
+
+function rateLimit(namespace, max) {
+  return (req, res, next) => {
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || "unknown";
+    const key = `${namespace}:${ip}`;
+    const now = Date.now();
+    let bucket = rateBuckets.get(key);
+
+    if (!bucket || now - bucket.windowStart > RATE_WINDOW_MS) {
+      bucket = { windowStart: now, count: 0 };
+      rateBuckets.set(key, bucket);
+    }
+
+    bucket.count++;
+    if (bucket.count > max) {
+      return res.status(429).json({
+        error: `Rate limit exceeded. Max ${max} requests per hour.`,
+      });
+    }
+
+    res.set("X-RateLimit-Limit", String(max));
+    res.set("X-RateLimit-Remaining", String(Math.max(0, max - bucket.count)));
+    next();
+  };
+}
+
+setInterval(() => {
+  const cutoff = Date.now() - RATE_WINDOW_MS * 2;
+  for (const [key, bucket] of rateBuckets) {
+    if (bucket.windowStart < cutoff) rateBuckets.delete(key);
+  }
+}, 10 * 60 * 1000);
+
+// ─── Supabase ───────────────────────────────────────────────────────
+let supabase = null;
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+const memoryStore = new Map();
+
+async function saveCard(id, character, ip) {
+  if (supabase) {
+    const { error } = await supabase.from("cards").insert({
+      id,
+      character,
+      creator_ip: ip || null,
+    });
+    if (error) throw new Error(`DB insert failed: ${error.message}`);
+  } else {
+    memoryStore.set(id, { character, created_at: new Date().toISOString() });
+  }
+}
+
+async function getCard(id) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("cards")
+      .update({ last_accessed_at: new Date().toISOString() })
+      .eq("id", id)
+      .select("character")
+      .single();
+    if (error || !data) return null;
+    return data.character;
+  } else {
+    const entry = memoryStore.get(id);
+    return entry ? entry.character : null;
+  }
+}
+
+// ─── Anthropic ──────────────────────────────────────────────────────
+let anthropic = null;
+if (process.env.ANTHROPIC_API_KEY) {
+  anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+}
+
+// ─── Character generation ───────────────────────────────────────────
 const VALID_CLASSES = [
   "Frontend Sorcerer", "Backend Paladin", "DevOps Ranger", "Data Necromancer",
   "Fullstack Warlock", "Cloud Architect", "Security Sentinel", "ML Alchemist",
   "Embedded Ranger", "Mobile Bard", "Platform Engineer", "QA Monk",
 ];
-
 const VALID_RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 
 const SYSTEM_PROMPT = `You are ResumeRPG, an AI that converts resumes into RPG character sheets. Given a resume, generate a JSON response with this EXACT structure (no markdown, no backticks, just raw JSON):
@@ -34,13 +129,8 @@ Stat definitions — score each 1-20:
 Level guide: 1-2yrs=10-20, 3-5yrs=20-40, 5-10yrs=40-60, 10-15yrs=60-80, 15+=80-99. Be creative. Return ONLY valid JSON.`;
 
 const DEMO_CHARACTER = {
-  name: "Avery Vale",
-  title: "Staff Engineer",
-  class: "DevOps Ranger",
-  level: 62,
-  rarity: "Epic",
-  xp_current: 7400,
-  xp_max: 10000,
+  name: "Avery Vale", title: "Staff Engineer", class: "DevOps Ranger",
+  level: 62, rarity: "Epic", xp_current: 7400, xp_max: 10000,
   stats: { IMPACT: 14, CRAFT: 17, RANGE: 12, TENURE: 18, VISION: 15, INFLUENCE: 11 },
   skills: ["Kubernetes", "Terraform", "Go", "AWS", "Observability", "CI/CD", "Python"],
   inventory: [
@@ -50,9 +140,9 @@ const DEMO_CHARACTER = {
     { name: "Scroll of Runbooks", type: "scroll", rarity: "uncommon" },
   ],
   quests_completed: [
-    { name: "The Monolith Must Fall", description: "Decomposed a 500k-line monolith into 23 bounded microservices" },
-    { name: "The Great Cloud Migration", description: "Migrated 40+ services from bare metal to Kubernetes on AWS" },
-    { name: "Pagerless Night", description: "Achieved 30 consecutive pager-free on-call nights through automation" },
+    { name: "The Monolith Must Fall", description: "Decomposed a 500k-line monolith into 23 microservices" },
+    { name: "The Great Cloud Migration", description: "Migrated 40+ services from bare metal to Kubernetes" },
+    { name: "Pagerless Night", description: "Achieved 30 consecutive pager-free on-call nights" },
   ],
   boss_battles: [
     { name: "The Cascading Failure of 2021", status: "defeated" },
@@ -63,9 +153,7 @@ const DEMO_CHARACTER = {
   tagline: "Five nines or a blameless postmortem",
 };
 
-function clamp(n, lo, hi) {
-  return Math.min(hi, Math.max(lo, n));
-}
+function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
 
 function normalizeCharacter(raw) {
   const stats = raw.stats || {};
@@ -105,157 +193,124 @@ function normalizeCharacter(raw) {
   };
 }
 
-async function resumeTextToCharacter(text, anthropic) {
+async function resumeTextToCharacter(text) {
   const trimmed = String(text || "").trim();
   if (trimmed.length < 40) {
     const err = new Error("Resume text too short to parse meaningfully.");
     err.status = 400;
     throw err;
   }
-
   if (!anthropic) {
     return { ...DEMO_CHARACTER, tagline: "Demo mode — add ANTHROPIC_API_KEY" };
   }
-
   const msg = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 2000,
-    system: SYSTEM_PROMPT,
+    model: MODEL, max_tokens: 2000, system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: `Here is my resume:\n\n${trimmed.slice(0, 48000)}` }],
   });
-
   const block = msg.content.find((b) => b.type === "text");
   if (!block || block.type !== "text") throw new Error("No text from model");
-
   let json;
   const raw = block.text.trim().replace(/```json|```/g, "").trim();
-  try {
-    json = JSON.parse(raw);
-  } catch {
+  try { json = JSON.parse(raw); } catch {
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) throw new Error("Model did not return valid JSON");
     json = JSON.parse(m[0]);
   }
-
   return normalizeCharacter(json);
 }
 
+// ─── Express app ────────────────────────────────────────────────────
 const app = express();
-app.use(cors({ origin: true }));
+app.set("trust proxy", 1);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!IS_PROD && (origin.includes("localhost") || origin.includes("127.0.0.1"))) {
+      return callback(null, true);
+    }
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error("CORS: origin not allowed"));
+  },
+  credentials: true,
+}));
+
 app.use(express.json({ limit: "2mb" }));
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
-});
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
-let anthropic = null;
-if (process.env.ANTHROPIC_API_KEY) {
-  anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-}
+function newShareId() { return randomBytes(9).toString("base64url"); }
+function getClientIp(req) { return req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || "unknown"; }
 
-const generateLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Rate limit exceeded — max 5 generations per hour. Try again later." },
-});
+// ─── Routes ─────────────────────────────────────────────────────────
 
-let supabase = null;
-const fallbackStore = new Map();
-
-if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-} else {
-  console.warn("SUPABASE_URL not set — shared cards will use in-memory store (lost on restart)");
-}
-
-function newShareId() {
-  return randomBytes(9).toString("base64url");
-}
-
-app.post("/api/parse-resume-text", generateLimiter, async (req, res) => {
-  try {
-    const text = req.body?.text;
-    const character = await resumeTextToCharacter(text, anthropic);
-    res.json(character);
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/api/parse-resume", generateLimiter, upload.single("resume"), async (req, res) => {
-  try {
-    if (!req.file?.buffer) {
-      return res.status(400).json({ error: "Missing PDF file (field: resume)" });
-    }
-    const data = await pdfParse(req.file.buffer);
-    const character = await resumeTextToCharacter(data.text || "", anthropic);
-    res.json(character);
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/api/share", async (req, res) => {
-  try {
-    const character = req.body?.character;
-    if (!character || typeof character !== "object") {
-      return res.status(400).json({ error: "Missing character" });
-    }
-    const id = newShareId();
-    const normalized = normalizeCharacter(character);
-
-    if (supabase) {
-      const { error } = await supabase.from("cards").insert({
-        id,
-        character: normalized,
-        creator_ip: req.ip,
-      });
-      if (error) throw error;
-    } else {
-      fallbackStore.set(id, normalized);
-    }
-
-    res.json({ id });
-  } catch (e) {
-    res.status(500).json({ error: e.message || "Failed to save card" });
-  }
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok", hasApiKey: !!anthropic, hasSupabase: !!supabase, uptime: Math.floor(process.uptime()) });
 });
 
 app.get("/api/status", (_req, res) => {
   res.json({ hasApiKey: !!anthropic });
 });
 
-app.get("/api/share/:id", async (req, res) => {
+app.post("/api/parse-resume-text", rateLimit("generate", RATE_MAX_GENERATE), async (req, res) => {
   try {
-    if (supabase) {
-      const { data, error } = await supabase
-        .from("cards")
-        .select("character")
-        .eq("id", req.params.id)
-        .single();
-      if (error || !data) return res.status(404).json({ error: "Not found" });
-
-      void supabase
-        .from("cards")
-        .update({ last_accessed_at: new Date().toISOString() })
-        .eq("id", req.params.id)
-        .then();
-
-      return res.json(data.character);
-    }
-
-    const c = fallbackStore.get(req.params.id);
-    if (!c) return res.status(404).json({ error: "Not found" });
-    res.json(c);
+    const character = await resumeTextToCharacter(req.body?.text);
+    res.json(character);
   } catch (e) {
-    res.status(500).json({ error: e.message || "Failed to load card" });
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
   }
 });
 
+app.post("/api/parse-resume", rateLimit("generate", RATE_MAX_GENERATE), upload.single("resume"), async (req, res) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: "Missing PDF file (field: resume)" });
+    const data = await pdfParse(req.file.buffer);
+    const character = await resumeTextToCharacter(data.text || "");
+    res.json(character);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.post("/api/share", rateLimit("share", RATE_MAX_SHARE), async (req, res) => {
+  try {
+    const character = req.body?.character;
+    if (!character || typeof character !== "object") return res.status(400).json({ error: "Missing character" });
+    const id = newShareId();
+    await saveCard(id, normalizeCharacter(character), getClientIp(req));
+    res.json({ id });
+  } catch (e) {
+    console.error("Share error:", e.message);
+    res.status(500).json({ error: "Failed to save card" });
+  }
+});
+
+app.get("/api/share/:id", async (req, res) => {
+  try {
+    const character = await getCard(req.params.id);
+    if (!character) return res.status(404).json({ error: "Card not found" });
+    res.json(character);
+  } catch (e) {
+    console.error("Share read error:", e.message);
+    res.status(500).json({ error: "Failed to load card" });
+  }
+});
+
+// ─── Static files (production) ──────────────────────────────────────
+const distPath = resolve(__dirname, "..", "dist");
+if (IS_PROD && existsSync(distPath)) {
+  app.use(express.static(distPath, { maxAge: "7d", index: false }));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/")) return next();
+    res.sendFile(resolve(distPath, "index.html"));
+  });
+}
+
+// ─── Start ──────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`ResumeRPG API http://127.0.0.1:${PORT}`);
-  console.log(anthropic ? `Model: ${MODEL}` : "Demo mode (no ANTHROPIC_API_KEY)");
+  console.log(`\nResumeRPG ${IS_PROD ? "PRODUCTION" : "dev"} → http://127.0.0.1:${PORT}`);
+  console.log(`  Claude:  ${anthropic ? MODEL : "demo mode (no key)"}`);
+  console.log(`  Storage: ${supabase ? "Supabase" : "in-memory (dev only)"}`);
+  console.log(`  CORS:    ${IS_PROD ? ALLOWED_ORIGINS.join(", ") || "⚠ NONE — set ALLOWED_ORIGINS!" : "localhost/*"}`);
+  console.log(`  Limits:  ${RATE_MAX_GENERATE} gen/hr, ${RATE_MAX_SHARE} share/hr per IP\n`);
 });

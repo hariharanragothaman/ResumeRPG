@@ -20,7 +20,7 @@ graph TB
     end
 
     subgraph Server["Express API"]
-        RL[Rate Limiter<br/>5 req/IP/hr]
+        RL[Rate Limiter<br/>10 gen/hr]
         EP["/api/parse-resume-text<br/>/api/parse-resume"]
         SH["/api/share"]
         ST["/api/status"]
@@ -128,7 +128,7 @@ sequenceDiagram
 | **Trading Card Export** | 750×1050 PNG with stats, skills, QR code — sized for physical printing |
 | **Gallery** | All generated characters saved to localStorage with load/delete |
 | **Compare Mode** | Side-by-side radar chart comparison of two characters |
-| **Rate Limiting** | 5 generations/IP/hour on server endpoints to prevent API cost abuse |
+| **Rate Limiting** | 10 gen/hr + 30 share/hr per IP (configurable via env vars) |
 | **Bring Your Own Key** | Client-side key stored in sessionStorage, cleared on tab close, calls go direct to provider |
 
 ## Power Profile Stats
@@ -147,7 +147,10 @@ sequenceDiagram
 ```
 ResumeRPG/
 ├── server/
-│   └── index.js              # Express API (rate limiting, Claude proxy, share store)
+│   └── index.js              # Express API — CORS, rate limiter, Claude proxy, Supabase share store, static serving
+├── supabase/
+│   └── migrations/
+│       └── 001_create_cards.sql  # Schema for the cards table (run in Supabase SQL Editor)
 ├── src/
 │   ├── components/
 │   │   ├── CardFront.tsx      # Front face — avatar, stats, skills, QR
@@ -172,6 +175,7 @@ ResumeRPG/
 │   │   └── SharePage.tsx      # Shared character viewer
 │   └── types/
 │       └── character.ts       # TypeScript interfaces (CharacterSheet, StatBlock, etc.)
+├── railway.json               # Railway deployment config
 └── package.json
 ```
 
@@ -188,19 +192,58 @@ npm run dev
 
 No server API key? The app falls back to "bring your own key" mode — enter an Anthropic or OpenAI key in the UI. Or use GitHub mode, which needs no key at all.
 
+## Production Deployment (Railway)
+
+### 1. Set up Supabase (free tier)
+
+1. Create a project at [supabase.com](https://supabase.com)
+2. Go to SQL Editor, paste and run `supabase/migrations/001_create_cards.sql`
+3. Copy your project URL and service role key from Settings → API
+
+### 2. Deploy to Railway
+
+1. Push this repo to GitHub
+2. Create a new project on [railway.app](https://railway.app) → "Deploy from GitHub repo"
+3. Railway auto-detects `railway.json` — it will run `npm ci && npm run build`, then `node server/index.js`
+4. Add these environment variables in Railway:
+
+| Variable | Value |
+|----------|-------|
+| `ANTHROPIC_API_KEY` | `sk-ant-...` |
+| `SUPABASE_URL` | `https://yourproject.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` |
+| `ALLOWED_ORIGINS` | `https://resumerpg.app,https://www.resumerpg.app` |
+| `NODE_ENV` | `production` |
+
+5. Railway assigns a URL automatically. Point your domain's DNS to it.
+
 ## Scripts
 
 | Script | Description |
 |--------|-------------|
-| `npm run dev` | Vite + Express API together |
-| `npm run build` | Production client build (`tsc -b && vite build`) |
-| `npm run preview` | Preview built client |
+| `npm run dev` | Vite + Express API together (dev) |
+| `npm run build` | Production client build |
+| `npm start` | Production server (serves built client + API) |
 | `npm run lint` | ESLint |
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | For real generation | — | Claude API key |
+| `SUPABASE_URL` | For persistent links | — | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | For persistent links | — | Supabase service role key |
+| `ALLOWED_ORIGINS` | In production | — | Comma-separated allowed CORS origins |
+| `NODE_ENV` | In production | — | Set to `production` |
+| `PORT` | No | `8787` | Server port (Railway sets this automatically) |
+| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Model to use |
+| `RATE_LIMIT_GENERATE` | No | `10` | Max generations per IP per hour |
+| `RATE_LIMIT_SHARE` | No | `30` | Max shares per IP per hour |
 
 ## Tech Stack
 
 **Frontend:** React 19, TypeScript, Vite 6, Tailwind CSS 3, Recharts, pdf.js (CDN)
-**Backend:** Express, express-rate-limit, Anthropic SDK, pdf-parse, multer
+**Backend:** Express, Anthropic SDK, Supabase, pdf-parse, multer
 **AI:** Claude Opus 4.6 (Anthropic) / GPT-4.1 (OpenAI)
 **Storage:** localStorage (characters), sessionStorage (API keys), Supabase Postgres (shared cards)
 
