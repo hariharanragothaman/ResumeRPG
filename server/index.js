@@ -21,44 +21,15 @@ const VALID_CLASSES = [
 const VALID_RARITIES = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
 
 const SYSTEM_PROMPT = `You are ResumeRPG, an AI that converts resumes into RPG character sheets. Given a resume, generate a JSON response with this EXACT structure (no markdown, no backticks, just raw JSON):
-
-{
-  "name": "The person's real name",
-  "title": "Their current/most recent job title",
-  "class": "One of: Frontend Sorcerer, Backend Paladin, DevOps Ranger, Data Necromancer, Fullstack Warlock, Cloud Architect, Security Sentinel, ML Alchemist, Embedded Ranger, Mobile Bard, Platform Engineer, QA Monk",
-  "level": <number 1-99 based on years of experience: 1-2yrs=10-20, 3-5yrs=20-40, 5-10yrs=40-60, 10-15yrs=60-80, 15+yrs=80-99>,
-  "rarity": "One of: Common, Uncommon, Rare, Epic, Legendary - based on how unique/impressive the skill combination is",
-  "xp_current": <number, current XP within level>,
-  "xp_max": <number, XP needed for next level>,
-  "stats": {
-    "STR": <1-20, based on leadership, team size managed, impact>,
-    "INT": <1-20, based on education, publications, patents, certifications>,
-    "DEX": <1-20, based on breadth of skills, languages, frameworks>,
-    "CON": <1-20, based on years of experience, tenure at companies>,
-    "WIS": <1-20, based on domain expertise depth, specialization>,
-    "CHA": <1-20, based on speaking, community involvement, open source, awards>
-  },
-  "skills": ["Top 6-8 technical skills as short strings"],
-  "inventory": [
-    {"name": "Item name (certification/degree/tool)", "type": "weapon|armor|artifact|scroll", "rarity": "common|uncommon|rare|epic|legendary"}
-  ],
-  "quests_completed": [
-    {"name": "Creative quest name for a career milestone", "description": "One-line description"}
-  ],
-  "boss_battles": [
-    {"name": "Creative boss name for a major challenge overcome", "status": "defeated"}
-  ],
-  "guild": "Company or organization they belong to",
-  "backstory": "A 2-sentence RPG-flavored backstory based on their career journey",
-  "tagline": "A short catchy RPG-style tagline, max 8 words"
-}
-
-Rules:
-- Be creative and fun with quest names and boss battles but keep them grounded in real career events
-- Infer skills from context even if not explicitly listed
-- The class should reflect their PRIMARY specialization
-- Make the backstory dramatic but accurate
-- Return ONLY valid JSON, no other text`;
+{"name":"Real name","title":"Job title","class":"One of: Frontend Sorcerer, Backend Paladin, DevOps Ranger, Data Necromancer, Fullstack Warlock, Cloud Architect, Security Sentinel, ML Alchemist, Embedded Ranger, Mobile Bard, Platform Engineer, QA Monk","level":<1-99>,"rarity":"Common|Uncommon|Rare|Epic|Legendary","xp_current":<num>,"xp_max":<num>,"stats":{"IMPACT":<1-20>,"CRAFT":<1-20>,"RANGE":<1-20>,"TENURE":<1-20>,"VISION":<1-20>,"INFLUENCE":<1-20>},"skills":["6-8 skills"],"inventory":[{"name":"item","type":"weapon|armor|artifact|scroll","rarity":"common|uncommon|rare|epic|legendary"}],"quests_completed":[{"name":"Quest","description":"desc"}],"boss_battles":[{"name":"Boss","status":"defeated"}],"guild":"Company","backstory":"2 sentences","tagline":"max 8 words","achievements":[]}
+Stat definitions — score each 1-20:
+  IMPACT: Leadership, team size managed, business outcomes driven, scope of responsibility
+  CRAFT: Technical depth, education level, publications, patents, certifications, code quality
+  RANGE: Breadth of skills, languages, frameworks, cross-domain versatility, adaptability
+  TENURE: Years of experience, longevity at companies, career consistency, resilience
+  VISION: Strategic thinking, architecture decisions, domain expertise, forward-looking initiatives
+  INFLUENCE: Community presence, speaking, open source, mentoring, awards, industry recognition
+Level guide: 1-2yrs=10-20, 3-5yrs=20-40, 5-10yrs=40-60, 10-15yrs=60-80, 15+=80-99. Be creative. Return ONLY valid JSON.`;
 
 const DEMO_CHARACTER = {
   name: "Avery Vale",
@@ -68,7 +39,7 @@ const DEMO_CHARACTER = {
   rarity: "Epic",
   xp_current: 7400,
   xp_max: 10000,
-  stats: { STR: 14, INT: 17, DEX: 12, CON: 18, WIS: 15, CHA: 11 },
+  stats: { IMPACT: 14, CRAFT: 17, RANGE: 12, TENURE: 18, VISION: 15, INFLUENCE: 11 },
   skills: ["Kubernetes", "Terraform", "Go", "AWS", "Observability", "CI/CD", "Python"],
   inventory: [
     { name: "Helm of SLOs (CKA Cert)", type: "artifact", rarity: "epic" },
@@ -105,12 +76,12 @@ function normalizeCharacter(raw) {
     xp_current: clamp(Math.round(Number(raw.xp_current) || 0), 0, 99999),
     xp_max: clamp(Math.round(Number(raw.xp_max) || 1000), 1, 99999),
     stats: {
-      STR: clamp(Math.round(Number(stats.STR) || 10), 1, 20),
-      INT: clamp(Math.round(Number(stats.INT) || 10), 1, 20),
-      DEX: clamp(Math.round(Number(stats.DEX) || 10), 1, 20),
-      CON: clamp(Math.round(Number(stats.CON) || 10), 1, 20),
-      WIS: clamp(Math.round(Number(stats.WIS) || 10), 1, 20),
-      CHA: clamp(Math.round(Number(stats.CHA) || 10), 1, 20),
+      IMPACT: clamp(Math.round(Number(stats.IMPACT) || 10), 1, 20),
+      CRAFT: clamp(Math.round(Number(stats.CRAFT) || 10), 1, 20),
+      RANGE: clamp(Math.round(Number(stats.RANGE) || 10), 1, 20),
+      TENURE: clamp(Math.round(Number(stats.TENURE) || 10), 1, 20),
+      VISION: clamp(Math.round(Number(stats.VISION) || 10), 1, 20),
+      INFLUENCE: clamp(Math.round(Number(stats.INFLUENCE) || 10), 1, 20),
     },
     skills: (Array.isArray(raw.skills) ? raw.skills : []).slice(0, 12).map(String),
     inventory: (Array.isArray(raw.inventory) ? raw.inventory : []).slice(0, 10).map((it, i) => ({

@@ -71,7 +71,7 @@ export function CardFront({
 
       {/* Stats */}
       <div style={{ padding: compact ? "10px 12px" : "12px 16px", borderBottom: "1px solid " + T.surfaceBorder }}>
-        <div style={{ fontFamily: T.labelFont, fontSize: 7, color: T.textDim, marginBottom: 7, letterSpacing: 2, fontWeight: 700 }}>ATTRIBUTES</div>
+        <div style={{ fontFamily: T.labelFont, fontSize: 7, color: T.textDim, marginBottom: 7, letterSpacing: 2, fontWeight: 700 }}>POWER PROFILE</div>
         {data.stats && STAT_NAMES.map((k, i) => <StatBar key={k} label={k} value={data.stats[k] || 0} color={cc.color} delay={i * 80} theme={theme} />)}
       </div>
 

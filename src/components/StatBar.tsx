@@ -39,7 +39,7 @@ export function StatBar({
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-      <span style={{ fontFamily: T.labelFont, fontSize: fontSizeLabel, color: T.textMuted, width: 34, textAlign: "right", fontWeight: T.light ? 600 : 400 }}>{label}</span>
+      <span style={{ fontFamily: T.labelFont, fontSize: fontSizeLabel > 8 ? 7 : 6, color: T.textMuted, width: 62, textAlign: "right", fontWeight: T.light ? 600 : 400, letterSpacing: 0.5 }}>{label}</span>
       <div style={{ flex: 1, height: 14, background: T.barBg, borderRadius: isPixel ? 0 : 2, border: "1px solid " + T.barBorder, overflow: "hidden", position: "relative" }}>
         <div style={{
           width: pct + "%", height: "100%",

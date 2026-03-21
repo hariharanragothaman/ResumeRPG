@@ -76,12 +76,12 @@ const CLASS_MAP: Record<string, CharacterClass> = {
 
 export function ghToCharacter(gh: GitHubProfile): CharacterSheet & { _github: { login: string; avatar: string } } {
   const stats = {
-    STR: clamp(Math.floor(gh.publicRepos / 5) + 3, 1, 20),
-    INT: clamp(gh.languages.length + 2, 1, 20),
-    DEX: clamp(Math.floor(gh.languages.length * 1.5) + 1, 1, 20),
-    CON: clamp(gh.yearsActive * 2, 1, 20),
-    WIS: clamp(Math.floor(Math.log2(gh.totalStars + 1) * 2) + 3, 1, 20),
-    CHA: clamp(Math.floor(Math.log2(gh.followers + 1) * 2) + 2, 1, 20),
+    IMPACT: clamp(Math.floor(gh.publicRepos / 5) + 3, 1, 20),
+    CRAFT: clamp(gh.languages.length + 2, 1, 20),
+    RANGE: clamp(Math.floor(gh.languages.length * 1.5) + 1, 1, 20),
+    TENURE: clamp(gh.yearsActive * 2, 1, 20),
+    VISION: clamp(Math.floor(Math.log2(gh.totalStars + 1) * 2) + 3, 1, 20),
+    INFLUENCE: clamp(Math.floor(Math.log2(gh.followers + 1) * 2) + 2, 1, 20),
   };
   const total = Object.values(stats).reduce((a, b) => a + b, 0);
   const level = Math.min(99, Math.max(1, gh.yearsActive * 6 + Math.floor(gh.publicRepos / 3)));

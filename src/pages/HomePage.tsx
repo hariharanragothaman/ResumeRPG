@@ -301,7 +301,7 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
                 />
               </div>
               <p style={{ fontFamily: T.bodyFont, fontSize: 11, color: T.textDim, marginTop: 8, lineHeight: 1.5 }}>
-                Fetches your public repos, languages, stars, and followers to auto-generate stats. Commit streaks → CON, stars → WIS, language diversity → DEX, followers → CHA.
+                Fetches your public repos, languages, stars, and followers to auto-generate stats. Repos → IMPACT, years active → TENURE, language diversity → RANGE, stars → VISION, followers → INFLUENCE.
               </p>
             </div>
           )}

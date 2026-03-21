@@ -1,8 +1,6 @@
-import { CLASS_CONFIG, RARITY_CONFIG } from "@/lib/config";
+import { CLASS_CONFIG, RARITY_CONFIG, STAT_NAMES } from "@/lib/config";
 import { getQRUrl } from "@/lib/share";
-import type { CharacterSheet, StatBlock } from "@/types/character";
-
-const STAT_NAMES: (keyof StatBlock)[] = ["STR", "INT", "DEX", "CON", "WIS", "CHA"];
+import type { CharacterSheet } from "@/types/character";
 
 function canvasRoundRect(
   ctx: CanvasRenderingContext2D,
@@ -139,18 +137,18 @@ export async function exportTradingCard(character: CharacterSheet) {
   ctx.font = '11px "Press Start 2P"';
   ctx.fillStyle = "#475569";
   ctx.textAlign = "left";
-  ctx.fillText("ATTRIBUTES", 50, y);
+  ctx.fillText("POWER PROFILE", 50, y);
   y += 22;
 
-  const barX = 105;
-  const barW = W - 210;
+  const barX = 170;
+  const barW = W - 270;
   const barH = 20;
   for (const stat of STAT_NAMES) {
     const val = character.stats[stat] || 0;
-    ctx.font = '12px "Press Start 2P"';
+    ctx.font = '10px "Press Start 2P"';
     ctx.fillStyle = "#94a3b8";
     ctx.textAlign = "right";
-    ctx.fillText(stat, barX - 12, y + 15);
+    ctx.fillText(stat, barX - 12, y + 14);
 
     canvasRoundRect(ctx, barX, y, barW, barH, 3);
     ctx.fillStyle = "rgba(30,30,50,0.8)";
@@ -173,7 +171,7 @@ export async function exportTradingCard(character: CharacterSheet) {
     ctx.font = '12px "Press Start 2P"';
     ctx.fillStyle = cc.color;
     ctx.textAlign = "left";
-    ctx.fillText(String(val), barX + barW + 14, y + 15);
+    ctx.fillText(String(val), barX + barW + 14, y + 14);
     y += barH + 8;
   }
 

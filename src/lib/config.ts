@@ -113,7 +113,7 @@ export const THEMES: Record<ThemeName, Theme> = {
   },
 };
 
-export const STAT_NAMES: (keyof import("@/types/character").StatBlock)[] = ["STR", "INT", "DEX", "CON", "WIS", "CHA"];
+export const STAT_NAMES: (keyof import("@/types/character").StatBlock)[] = ["IMPACT", "CRAFT", "RANGE", "TENURE", "VISION", "INFLUENCE"];
 
 export const LOADING_MESSAGES = [
   "Rolling for initiative...",

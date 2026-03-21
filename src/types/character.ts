@@ -15,12 +15,12 @@ export type CharacterClass =
   | "QA Monk";
 
 export interface StatBlock {
-  STR: number;
-  INT: number;
-  DEX: number;
-  CON: number;
-  WIS: number;
-  CHA: number;
+  IMPACT: number;
+  CRAFT: number;
+  RANGE: number;
+  TENURE: number;
+  VISION: number;
+  INFLUENCE: number;
 }
 
 export interface InventoryItem {
