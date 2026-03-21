@@ -1,5 +1,6 @@
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
+import { createClient } from "@supabase/supabase-js";
 import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -161,7 +162,14 @@ const generateLimiter = rateLimit({
   message: { error: "Rate limit exceeded — max 5 generations per hour. Try again later." },
 });
 
-const shareStore = new Map();
+let supabase = null;
+const fallbackStore = new Map();
+
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+} else {
+  console.warn("SUPABASE_URL not set — shared cards will use in-memory store (lost on restart)");
+}
 
 function newShareId() {
   return randomBytes(9).toString("base64url");
@@ -190,24 +198,61 @@ app.post("/api/parse-resume", generateLimiter, upload.single("resume"), async (r
   }
 });
 
-app.post("/api/share", (req, res) => {
-  const character = req.body?.character;
-  if (!character || typeof character !== "object") {
-    return res.status(400).json({ error: "Missing character" });
+app.post("/api/share", async (req, res) => {
+  try {
+    const character = req.body?.character;
+    if (!character || typeof character !== "object") {
+      return res.status(400).json({ error: "Missing character" });
+    }
+    const id = newShareId();
+    const normalized = normalizeCharacter(character);
+
+    if (supabase) {
+      const { error } = await supabase.from("cards").insert({
+        id,
+        character: normalized,
+        creator_ip: req.ip,
+      });
+      if (error) throw error;
+    } else {
+      fallbackStore.set(id, normalized);
+    }
+
+    res.json({ id });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Failed to save card" });
   }
-  const id = newShareId();
-  shareStore.set(id, normalizeCharacter(character));
-  res.json({ id });
 });
 
 app.get("/api/status", (_req, res) => {
   res.json({ hasApiKey: !!anthropic });
 });
 
-app.get("/api/share/:id", (req, res) => {
-  const c = shareStore.get(req.params.id);
-  if (!c) return res.status(404).json({ error: "Not found" });
-  res.json(c);
+app.get("/api/share/:id", async (req, res) => {
+  try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("cards")
+        .select("character")
+        .eq("id", req.params.id)
+        .single();
+      if (error || !data) return res.status(404).json({ error: "Not found" });
+
+      void supabase
+        .from("cards")
+        .update({ last_accessed_at: new Date().toISOString() })
+        .eq("id", req.params.id)
+        .then();
+
+      return res.json(data.character);
+    }
+
+    const c = fallbackStore.get(req.params.id);
+    if (!c) return res.status(404).json({ error: "Not found" });
+    res.json(c);
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Failed to load card" });
+  }
 });
 
 app.listen(PORT, () => {

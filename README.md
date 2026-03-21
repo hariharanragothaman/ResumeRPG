@@ -21,9 +21,9 @@ graph TB
 
     subgraph Server["Express API"]
         RL[Rate Limiter<br/>5 req/IP/hr]
-        EP[/api/parse-resume-text<br/>/api/parse-resume]
-        SH[/api/share]
-        ST[/api/status]
+        EP["/api/parse-resume-text<br/>/api/parse-resume"]
+        SH["/api/share"]
+        ST["/api/status"]
     end
 
     subgraph AI["AI Providers"]
@@ -202,14 +202,14 @@ No server API key? The app falls back to "bring your own key" mode — enter an 
 **Frontend:** React 19, TypeScript, Vite 6, Tailwind CSS 3, Recharts, pdf.js (CDN)
 **Backend:** Express, express-rate-limit, Anthropic SDK, pdf-parse, multer
 **AI:** Claude Opus 4.6 (Anthropic) / GPT-4.1 (OpenAI)
-**Storage:** localStorage (characters), sessionStorage (API keys)
+**Storage:** localStorage (characters), sessionStorage (API keys), Supabase Postgres (shared cards)
 
 ## Roadmap
 
 - LinkedIn OAuth + structured import
 - Pixi/Canvas pixel avatar renderer
 - Print-ready 2.5×3.5" export at 300 DPI
-- Supabase for persistent shares, auth, and cohort-based rarity
+- Supabase auth and cohort-based rarity
 - Public compare links for recruiters
 
 ## License
