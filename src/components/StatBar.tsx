@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { THEMES, type ThemeName } from "@/lib/config";
 
 export function StatBar({
   label,
@@ -6,93 +7,58 @@ export function StatBar({
   maxVal = 20,
   color,
   delay = 0,
+  theme = "fantasy",
+  animated = true,
 }: {
   label: string;
   value: number;
   maxVal?: number;
   color: string;
   delay?: number;
+  theme?: ThemeName;
+  animated?: boolean;
 }) {
-  const [animated, setAnimated] = useState(0);
+  const T = THEMES[theme];
+  const [anim, setAnim] = useState(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      let current = 0;
-      const interval = setInterval(() => {
-        current += 0.5;
-        if (current >= value) {
-          setAnimated(value);
-          clearInterval(interval);
-        } else {
-          setAnimated(current);
-        }
-      }, 20);
-      return () => clearInterval(interval);
+    const t = setTimeout(() => {
+      let c = 0;
+      const iv = setInterval(() => {
+        c += 0.5;
+        if (c >= value) { setAnim(value); clearInterval(iv); } else setAnim(c);
+      }, 18);
+      return () => clearInterval(iv);
     }, delay);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, [value, delay]);
 
-  const pct = (animated / maxVal) * 100;
+  const pct = (anim / maxVal) * 100;
+  const isPixel = theme === "pixel";
+  const fontSizeLabel = T.labelFont.includes("Orbitron") || T.labelFont.includes("Inter") ? 10 : 9;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-      <span
-        style={{
-          fontFamily: "'Press Start 2P'",
-          fontSize: 9,
-          color: "#94a3b8",
-          width: 32,
-          textAlign: "right",
-        }}
-      >
-        {label}
-      </span>
-      <div
-        style={{
-          flex: 1,
-          height: 14,
-          background: "rgba(30,30,50,0.8)",
-          borderRadius: 2,
-          border: "1px solid rgba(255,255,255,0.08)",
-          overflow: "hidden",
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+      <span style={{ fontFamily: T.labelFont, fontSize: fontSizeLabel, color: T.textMuted, width: 34, textAlign: "right", fontWeight: T.light ? 600 : 400 }}>{label}</span>
+      <div style={{ flex: 1, height: 14, background: T.barBg, borderRadius: isPixel ? 0 : 2, border: "1px solid " + T.barBorder, overflow: "hidden", position: "relative" }}>
+        <div style={{
+          width: pct + "%", height: "100%",
+          background: `linear-gradient(90deg,${color}cc,${color})`,
+          borderRadius: isPixel ? 0 : 2,
           position: "relative",
-        }}
-      >
-        <div
-          style={{
-            width: `${pct}%`,
-            height: "100%",
-            background: `linear-gradient(90deg, ${color}cc, ${color})`,
-            borderRadius: 2,
-            transition: "width 0.1s linear",
-            position: "relative",
-            boxShadow: `0 0 10px ${color}44`,
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              height: "40%",
-              background: "rgba(255,255,255,0.15)",
-              borderRadius: "2px 2px 0 0",
-            }}
-          />
+          boxShadow: animated ? `0 0 8px ${color}33` : "none",
+          animation: animated ? "pulse-bar 3s ease-in-out infinite" : "none",
+        }}>
+          {!T.light && (
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: "40%",
+              background: "rgba(255,255,255,0.12)",
+              borderRadius: isPixel ? 0 : "2px 2px 0 0",
+            }} />
+          )}
         </div>
       </div>
-      <span
-        style={{
-          fontFamily: "'Press Start 2P'",
-          fontSize: 9,
-          color,
-          width: 24,
-          textAlign: "left",
-        }}
-      >
-        {value}
-      </span>
+      <span style={{ fontFamily: T.labelFont, fontSize: fontSizeLabel, color, width: 24, textAlign: "left", fontWeight: T.light ? 700 : 400 }}>{value}</span>
     </div>
   );
 }
