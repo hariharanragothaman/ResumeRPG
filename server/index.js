@@ -2,6 +2,7 @@ import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
 import cors from "cors";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
@@ -152,13 +153,21 @@ if (process.env.ANTHROPIC_API_KEY) {
   anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
 
+const generateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Rate limit exceeded — max 5 generations per hour. Try again later." },
+});
+
 const shareStore = new Map();
 
 function newShareId() {
   return randomBytes(9).toString("base64url");
 }
 
-app.post("/api/parse-resume-text", async (req, res) => {
+app.post("/api/parse-resume-text", generateLimiter, async (req, res) => {
   try {
     const text = req.body?.text;
     const character = await resumeTextToCharacter(text, anthropic);
@@ -168,7 +177,7 @@ app.post("/api/parse-resume-text", async (req, res) => {
   }
 });
 
-app.post("/api/parse-resume", upload.single("resume"), async (req, res) => {
+app.post("/api/parse-resume", generateLimiter, upload.single("resume"), async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({ error: "Missing PDF file (field: resume)" });
