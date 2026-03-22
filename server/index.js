@@ -9,6 +9,9 @@ import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { getOrCreateCard, getGlobalStats, startPeriodicRecalc } from "./lib/github-cards.js";
+import { generateBadge, generateCardBadge } from "./lib/badge.js";
+import { generateCardImage } from "./lib/card-image.js";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
@@ -28,7 +31,7 @@ if (!IS_PROD) {
   ALLOWED_ORIGINS.push("http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173");
 }
 
-// ─── Rate limiter (in-memory — swap to Redis/Upstash later) ─────────
+// ─── Rate limiter (in-memory — fine for <500 users, swap to Redis later) ──
 const rateBuckets = new Map();
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 const RATE_MAX_GENERATE = Number(process.env.RATE_LIMIT_GENERATE || 10);
@@ -296,12 +299,81 @@ app.get("/api/share/:id", async (req, res) => {
   }
 });
 
+// ─── GitHub Card Routes ─────────────────────────────────────────────
+
+app.get("/api/gh/:username", rateLimit("ghcard", RATE_MAX_GENERATE), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: "Database not configured. GitHub cards require Supabase." });
+  try {
+    const result = await getOrCreateCard(supabase, req.params.username);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Failed to load card" });
+  }
+});
+
+app.get("/api/gh/:username/vs/:other", rateLimit("ghcard", RATE_MAX_GENERATE), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: "Database not configured" });
+  try {
+    const [left, right] = await Promise.all([
+      getOrCreateCard(supabase, req.params.username),
+      getOrCreateCard(supabase, req.params.other),
+    ]);
+    res.json({ left, right });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Failed to compare" });
+  }
+});
+
+app.get("/api/gh-stats", async (req, res) => {
+  if (!supabase) return res.json(null);
+  const stats = await getGlobalStats(supabase);
+  res.json(stats);
+});
+
+app.get("/gh/:username/badge.svg", rateLimit("badge", 120), async (req, res) => {
+  if (!supabase) return res.status(503).send("Database not configured");
+  try {
+    const result = await getOrCreateCard(supabase, req.params.username);
+    const style = req.query.style || "flat";
+    const svg = style === "card"
+      ? generateCardBadge(result.character, result.percentiles)
+      : generateBadge(result.character, { style });
+    res.set("Content-Type", "image/svg+xml");
+    res.set("Cache-Control", "public, max-age=3600, s-maxage=3600");
+    res.send(svg);
+  } catch (e) {
+    const fallback = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="20"><rect width="120" height="20" rx="3" fill="#555"/><text x="60" y="14" text-anchor="middle" font-size="11" fill="#fff" font-family="Verdana">ResumeRPG</text></svg>`;
+    res.set("Content-Type", "image/svg+xml");
+    res.status(e.status || 404).send(fallback);
+  }
+});
+
+app.get("/gh/:username/card.png", rateLimit("cardimg", 60), async (req, res) => {
+  if (!supabase) return res.status(503).send("Database not configured");
+  try {
+    const [result, stats] = await Promise.all([
+      getOrCreateCard(supabase, req.params.username),
+      getGlobalStats(supabase),
+    ]);
+    const png = await generateCardImage(result.character, result.percentiles, {
+      cohortSize: stats?.total_cards || null,
+    });
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "public, max-age=3600, s-maxage=3600");
+    res.send(png);
+  } catch (e) {
+    console.error("Card image error:", e.message);
+    res.status(e.status || 500).send("Failed to generate card image");
+  }
+});
+
 // ─── Static files (production) ──────────────────────────────────────
 const distPath = resolve(__dirname, "..", "dist");
 if (IS_PROD && existsSync(distPath)) {
   app.use(express.static(distPath, { maxAge: "7d", index: false }));
   app.get("*", (req, res, next) => {
     if (req.path.startsWith("/api/")) return next();
+    if (req.path.endsWith(".svg") || req.path.endsWith(".png")) return next();
     res.sendFile(resolve(distPath, "index.html"));
   });
 }
@@ -311,6 +383,12 @@ app.listen(PORT, () => {
   console.log(`\nResumeRPG ${IS_PROD ? "PRODUCTION" : "dev"} → http://127.0.0.1:${PORT}`);
   console.log(`  Claude:  ${anthropic ? MODEL : "demo mode (no key)"}`);
   console.log(`  Storage: ${supabase ? "Supabase" : "in-memory (dev only)"}`);
+  console.log(`  GitHub:  ${process.env.GITHUB_TOKEN ? "authenticated (5K req/hr)" : "anonymous (60 req/hr)"}`);
   console.log(`  CORS:    ${IS_PROD ? ALLOWED_ORIGINS.join(", ") || "⚠ NONE — set ALLOWED_ORIGINS!" : "localhost/*"}`);
   console.log(`  Limits:  ${RATE_MAX_GENERATE} gen/hr, ${RATE_MAX_SHARE} share/hr per IP\n`);
+
+  if (supabase) {
+    startPeriodicRecalc(supabase);
+    console.log("  Percentile recalc: every 5 min (when new cards exist)\n");
+  }
 });
