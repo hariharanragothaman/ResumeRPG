@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { CardFront } from "@/components/CardFront";
 import { CardBack } from "@/components/CardBack";
 import { HolographicCard } from "@/components/HolographicCard";
@@ -36,11 +36,26 @@ interface CohortStats {
 
 export function GitHubCardPage() {
   const { username } = useParams<{ username: string }>();
+  const navigate = useNavigate();
   const [result, setResult] = useState<CardResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [cohort, setCohort] = useState<CohortStats | null>(null);
+  const [ctaUser, setCtaUser] = useState("");
+
+  useEffect(() => {
+    document.title = username
+      ? `@${username} | ResumeRPG`
+      : "ResumeRPG — Your career, leveled up";
+  }, [username]);
+
+  useEffect(() => {
+    if (result?.character) {
+      const c = result.character;
+      document.title = `@${username} — Lv.${c.level} ${c.class} | ResumeRPG`;
+    }
+  }, [result, username]);
 
   useEffect(() => {
     if (!username) return;
@@ -101,7 +116,7 @@ export function GitHubCardPage() {
   if (!result) return null;
   const { character, percentiles, meta } = result;
   const publicOrigin = getPublicSiteOrigin();
-  const readmeBadgeMd = `[![ResumeRPG](${publicOrigin}/gh/${username}/badge.svg?style=full)](${publicOrigin}/gh/${username})`;
+  const readmeBadgeMd = `[![ResumeRPG](${publicOrigin}/${username}/badge.svg?style=full)](${publicOrigin}/${username})`;
 
   const handleExport = async () => {
     setExporting(true);
@@ -184,12 +199,59 @@ export function GitHubCardPage() {
           border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, cursor: "pointer",
           fontFamily: "'Press Start 2P'", fontSize: 7
         }}>📤 SHARE</button>
-        <Link to={`/gh/${username}/vs/`} style={{
+        <Link to={`/${username}/vs/`} style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           padding: "11px 6px", background: "rgba(255,255,255,0.04)", color: "#94a3b8",
           border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, textDecoration: "none",
           fontFamily: "'Press Start 2P'", fontSize: 7
         }}>⚔️ COMPARE</Link>
+      </div>
+
+      {/* CTA: What's YOUR card? */}
+      <div style={{
+        marginTop: 24, maxWidth: 420, margin: "24px auto 0", padding: 20,
+        background: "linear-gradient(135deg, rgba(168,85,247,0.08), rgba(124,58,237,0.04))",
+        borderRadius: 14, border: "1px solid rgba(168,85,247,0.2)", textAlign: "center",
+      }}>
+        <div style={{ fontFamily: "'Press Start 2P'", fontSize: 10, color: "#a855f7", marginBottom: 10 }}>
+          What's YOUR card?
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={ctaUser}
+            onChange={(e) => setCtaUser(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const u = ctaUser.trim().replace(/^@+/, "");
+                if (u) navigate(`/${encodeURIComponent(u)}`);
+              }
+            }}
+            placeholder="Your GitHub username"
+            style={{
+              flex: 1, padding: "10px 14px", background: "rgba(10,10,26,0.8)", color: "#e2e8f0",
+              border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10,
+              fontFamily: "'DM Sans'", fontSize: 14,
+            }}
+          />
+          <button
+            onClick={() => {
+              const u = ctaUser.trim().replace(/^@+/, "");
+              if (u) navigate(`/${encodeURIComponent(u)}`);
+            }}
+            disabled={!ctaUser.trim()}
+            style={{
+              padding: "10px 20px",
+              background: ctaUser.trim() ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(255,255,255,0.05)",
+              color: ctaUser.trim() ? "#fff" : "#475569",
+              border: "none", borderRadius: 10, cursor: ctaUser.trim() ? "pointer" : "not-allowed",
+              fontFamily: "'Press Start 2P'", fontSize: 8, fontWeight: 700,
+              boxShadow: ctaUser.trim() ? "0 4px 16px rgba(168,85,247,0.3)" : "none",
+            }}
+          >GO</button>
+        </div>
+        <Link to="/" style={{ display: "inline-block", marginTop: 10, fontFamily: "'DM Sans'", fontSize: 12, color: "#94a3b8", textDecoration: "none" }}>
+          or paste your resume →
+        </Link>
       </div>
 
       {/* Embed code */}

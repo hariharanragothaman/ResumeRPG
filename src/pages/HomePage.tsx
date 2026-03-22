@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CardFront } from "@/components/CardFront";
 import { CardBack } from "@/components/CardBack";
 import { HolographicCard } from "@/components/HolographicCard";
@@ -18,6 +18,36 @@ import {
 } from "@/lib/api";
 import type { Provider } from "@/lib/api";
 import type { CharacterSheet } from "@/types/character";
+
+const EXAMPLE_CARDS: (CharacterSheet & { _github?: { login: string } })[] = [
+  {
+    name: "Linus Torvalds", title: "Creator of Linux & Git", class: "Embedded Ranger",
+    level: 99, rarity: "Legendary", xp_current: 9999, xp_max: 10000,
+    stats: { IMPACT: 20, CRAFT: 20, RANGE: 16, TENURE: 20, VISION: 20, INFLUENCE: 20 },
+    skills: ["C", "Git", "Linux Kernel", "OS Design", "Open Source"],
+    inventory: [], quests_completed: [], boss_battles: [],
+    guild: "Linux Foundation", backstory: "", tagline: "Talk is cheap. Show me the code.",
+    _github: { login: "torvalds" },
+  },
+  {
+    name: "Dan Abramov", title: "React Core Team", class: "Frontend Sorcerer",
+    level: 78, rarity: "Epic", xp_current: 8200, xp_max: 10000,
+    stats: { IMPACT: 18, CRAFT: 19, RANGE: 14, TENURE: 12, VISION: 18, INFLUENCE: 19 },
+    skills: ["React", "Redux", "JavaScript", "TypeScript", "DX", "Teaching"],
+    inventory: [], quests_completed: [], boss_battles: [],
+    guild: "Meta", backstory: "", tagline: "UI is a function of state",
+    _github: { login: "gaearon" },
+  },
+  {
+    name: "Sindre Sorhus", title: "Open Source Machine", class: "Fullstack Warlock",
+    level: 88, rarity: "Legendary", xp_current: 9400, xp_max: 10000,
+    stats: { IMPACT: 17, CRAFT: 18, RANGE: 20, TENURE: 18, VISION: 16, INFLUENCE: 18 },
+    skills: ["Node.js", "npm", "Swift", "TypeScript", "CLI", "Open Source"],
+    inventory: [], quests_completed: [], boss_battles: [],
+    guild: "Freelance", backstory: "", tagline: "1000+ npm packages and counting",
+    _github: { login: "sindresorhus" },
+  },
+];
 
 type Tab = "generate" | "gallery" | "compare";
 type Step = "input" | "loading" | "result";
@@ -41,6 +71,7 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
   const [savedChars, setSavedChars] = useState<SavedEntry[]>([]);
   const [inputMode, setInputMode] = useState<InputMode>("resume");
   const [ghUser, setGhUser] = useState("");
+  const [cohortCount, setCohortCount] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [serverHasKey, setServerHasKey] = useState<boolean | null>(null);
@@ -51,7 +82,16 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
     () => sessionStorage.getItem(`resumerpg:apiKey:${(localStorage.getItem("resumerpg:provider") as Provider) || "anthropic"}`) || "",
   );
 
+  useEffect(() => {
+    document.title = "ResumeRPG — Your career, leveled up";
+  }, []);
+
   useEffect(() => { void checkServerHasKey().then(setServerHasKey); }, []);
+  useEffect(() => {
+    fetch("/api/gh-stats").then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.total_cards) setCohortCount(d.total_cards); })
+      .catch(() => {});
+  }, []);
   const needsClientKey = serverHasKey === false;
 
   const switchProvider = useCallback((p: Provider) => {
@@ -114,7 +154,7 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
 
   const goToGitHubCard = useCallback(() => {
     const u = ghUser.trim().replace(/^@+/, "");
-    if (u) navigate(`/gh/${encodeURIComponent(u)}`);
+    if (u) navigate(`/${encodeURIComponent(u)}`);
   }, [ghUser, navigate]);
 
   const handleExport = async () => {
@@ -197,6 +237,45 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
             }}
           >{t.icon} {t.name}</button>
         ))}
+      </div>
+
+      {/* Hero: Example cards */}
+      <div style={{ marginBottom: 20, animation: "slideUp 0.6s ease-out" }}>
+        <div style={{
+          display: "flex", gap: 10, overflowX: "auto", padding: "4px 0 10px",
+          scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch",
+        }}>
+          {EXAMPLE_CARDS.map((card) => (
+            <Link
+              key={card._github?.login}
+              to={`/${card._github?.login}`}
+              style={{
+                flex: "0 0 160px", scrollSnapAlign: "start", textDecoration: "none",
+                borderRadius: 12, overflow: "hidden",
+                border: "1px solid " + T.surfaceBorder,
+                transition: "transform 0.15s, box-shadow 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-4px)";
+                e.currentTarget.style.boxShadow = "0 8px 24px rgba(168,85,247,0.2)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "";
+                e.currentTarget.style.boxShadow = "";
+              }}
+            >
+              <CardFront data={card} theme={theme} compact />
+            </Link>
+          ))}
+        </div>
+        {cohortCount != null && cohortCount > 0 && (
+          <p style={{
+            textAlign: "center", fontFamily: T.bodyFont, fontSize: 11,
+            color: T.textMuted, margin: "4px 0 0",
+          }}>
+            Join {cohortCount.toLocaleString()}+ developers who've been indexed
+          </p>
+        )}
       </div>
 
       {/* Tabs */}

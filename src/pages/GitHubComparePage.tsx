@@ -25,6 +25,15 @@ export function GitHubComparePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [otherInput, setOtherInput] = useState(other || "");
+  const [ctaUser, setCtaUser] = useState("");
+
+  useEffect(() => {
+    if (username && other) {
+      document.title = `@${username} vs @${other} — Duel | ResumeRPG`;
+    } else if (username) {
+      document.title = `@${username} — Duel Mode | ResumeRPG`;
+    }
+  }, [username, other]);
 
   useEffect(() => {
     if (!username || !other) return;
@@ -43,7 +52,7 @@ export function GitHubComparePage() {
   const handleCompare = () => {
     const trimmed = otherInput.trim();
     if (trimmed && username) {
-      navigate(`/gh/${username}/vs/${trimmed}`);
+      navigate(`/${username}/vs/${trimmed}`);
     }
   };
 
@@ -51,7 +60,7 @@ export function GitHubComparePage() {
   if (!other) {
     return (
       <div style={{ maxWidth: 420, margin: "0 auto", padding: "60px 20px", textAlign: "center" }}>
-        <Link to={`/gh/${username}`} style={{ fontFamily: "'Press Start 2P'", fontSize: 7, color: "#475569", textDecoration: "none", letterSpacing: 2 }}>
+        <Link to={`/${username}`} style={{ fontFamily: "'Press Start 2P'", fontSize: 7, color: "#475569", textDecoration: "none", letterSpacing: 2 }}>
           ← BACK TO @{username?.toUpperCase()}
         </Link>
         <h2 style={{ fontFamily: "'Press Start 2P'", fontSize: 14, color: "#ef4444", marginTop: 24, marginBottom: 8 }}>⚔️ DUEL MODE</h2>
@@ -96,7 +105,7 @@ export function GitHubComparePage() {
     return (
       <div style={{ maxWidth: 420, margin: "0 auto", padding: "80px 20px", textAlign: "center" }}>
         <p style={{ fontFamily: "'DM Sans'", fontSize: 15, color: "#fca5a5" }}>{error}</p>
-        <Link to={`/gh/${username}`} style={{ display: "inline-block", marginTop: 16, fontFamily: "'Press Start 2P'", fontSize: 9, color: "#a855f7", textDecoration: "none" }}>
+        <Link to={`/${username}`} style={{ display: "inline-block", marginTop: 16, fontFamily: "'Press Start 2P'", fontSize: 9, color: "#a855f7", textDecoration: "none" }}>
           ← Back
         </Link>
       </div>
@@ -144,13 +153,13 @@ export function GitHubComparePage() {
           <div style={{ textAlign: "center" }}>
             <div style={{ fontFamily: "'Press Start 2P'", fontSize: 6, color: "#475569", marginBottom: 3 }}>POWER</div>
             <div style={{ fontFamily: "'Press Start 2P'", fontSize: 18, color: lTotal >= rTotal ? lc : "#475569" }}>{lTotal}</div>
-            <Link to={`/gh/${username}`} style={{ fontFamily: "'DM Sans'", fontSize: 11, color: lc, textDecoration: "none" }}>@{username}</Link>
+            <Link to={`/${username}`} style={{ fontFamily: "'DM Sans'", fontSize: 11, color: lc, textDecoration: "none" }}>@{username}</Link>
           </div>
           <div style={{ fontFamily: "'Press Start 2P'", fontSize: 12, color: "#334155", alignSelf: "center" }}>vs</div>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontFamily: "'Press Start 2P'", fontSize: 6, color: "#475569", marginBottom: 3 }}>POWER</div>
             <div style={{ fontFamily: "'Press Start 2P'", fontSize: 18, color: rTotal >= lTotal ? rc : "#475569" }}>{rTotal}</div>
-            <Link to={`/gh/${other}`} style={{ fontFamily: "'DM Sans'", fontSize: 11, color: rc, textDecoration: "none" }}>@{other}</Link>
+            <Link to={`/${other}`} style={{ fontFamily: "'DM Sans'", fontSize: 11, color: rc, textDecoration: "none" }}>@{other}</Link>
           </div>
         </div>
       </div>
@@ -165,7 +174,7 @@ export function GitHubComparePage() {
       <div style={{ textAlign: "center", marginTop: 20 }}>
         <button onClick={() => {
           const base = getPublicSiteOrigin();
-          const text = `⚔️ @${username} (Power ${lTotal}) vs @${other} (Power ${rTotal}) — who wins?\n\nSee the duel: ${base}/gh/${username}/vs/${other}`;
+          const text = `⚔️ @${username} (Power ${lTotal}) vs @${other} (Power ${rTotal}) — who wins?\n\nSee the duel: ${base}/${username}/vs/${other}`;
           if (navigator.share) navigator.share({ title: "ResumeRPG Duel", text });
           else navigator.clipboard?.writeText(text).then(() => alert("Copied!"));
         }} style={{
@@ -173,6 +182,53 @@ export function GitHubComparePage() {
           border: "none", borderRadius: 10, cursor: "pointer",
           fontFamily: "'Press Start 2P'", fontSize: 9, boxShadow: "0 4px 16px rgba(239,68,68,0.3)"
         }}>📤 SHARE THIS DUEL</button>
+      </div>
+
+      {/* CTA: What's YOUR card? */}
+      <div style={{
+        marginTop: 24, padding: 20,
+        background: "linear-gradient(135deg, rgba(168,85,247,0.08), rgba(124,58,237,0.04))",
+        borderRadius: 14, border: "1px solid rgba(168,85,247,0.2)", textAlign: "center",
+      }}>
+        <div style={{ fontFamily: "'Press Start 2P'", fontSize: 10, color: "#a855f7", marginBottom: 10 }}>
+          What's YOUR card?
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={ctaUser}
+            onChange={(e) => setCtaUser(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const u = ctaUser.trim().replace(/^@+/, "");
+                if (u) navigate(`/${encodeURIComponent(u)}`);
+              }
+            }}
+            placeholder="Your GitHub username"
+            style={{
+              flex: 1, padding: "10px 14px", background: "rgba(10,10,26,0.8)", color: "#e2e8f0",
+              border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10,
+              fontFamily: "'DM Sans'", fontSize: 14,
+            }}
+          />
+          <button
+            onClick={() => {
+              const u = ctaUser.trim().replace(/^@+/, "");
+              if (u) navigate(`/${encodeURIComponent(u)}`);
+            }}
+            disabled={!ctaUser.trim()}
+            style={{
+              padding: "10px 20px",
+              background: ctaUser.trim() ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "rgba(255,255,255,0.05)",
+              color: ctaUser.trim() ? "#fff" : "#475569",
+              border: "none", borderRadius: 10, cursor: ctaUser.trim() ? "pointer" : "not-allowed",
+              fontFamily: "'Press Start 2P'", fontSize: 8, fontWeight: 700,
+              boxShadow: ctaUser.trim() ? "0 4px 16px rgba(168,85,247,0.3)" : "none",
+            }}
+          >GO</button>
+        </div>
+        <Link to="/" style={{ display: "inline-block", marginTop: 10, fontFamily: "'DM Sans'", fontSize: 12, color: "#94a3b8", textDecoration: "none" }}>
+          or paste your resume →
+        </Link>
       </div>
     </div>
   );
