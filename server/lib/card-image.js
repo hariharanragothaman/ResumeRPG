@@ -1,8 +1,7 @@
 // server/lib/card-image.js
 // Generates a PNG trading card from a CharacterSheet (server-side, no browser needed)
-// Uses SVG construction → sharp for PNG conversion
-
-import sharp from "sharp";
+// Uses SVG construction → sharp for PNG conversion (sharp is lazy-loaded so the API
+// can start on Node versions sharp does not support; /gh/*/card.png may error until Node is upgraded)
 
 const CLASS_COLORS = {
   "Frontend Sorcerer": "#a855f7", "Backend Paladin": "#3b82f6", "DevOps Ranger": "#22c55e",
@@ -189,7 +188,15 @@ async function generateCardImage(character, percentiles, opts = {}) {
     return Buffer.from(svg, "utf-8");
   }
 
-  const pngBuffer = await sharp(Buffer.from(svg, "utf-8"))
+  let sharpMod;
+  try {
+    sharpMod = (await import("sharp")).default;
+  } catch (e) {
+    const hint = "PNG card image needs the sharp package and a supported Node.js (see package.json engines, e.g. Node 20 LTS).";
+    throw Object.assign(new Error(`${hint} (${e?.message || "import failed"})`), { status: 503 });
+  }
+
+  const pngBuffer = await sharpMod(Buffer.from(svg, "utf-8"))
     .resize(opts.width || 600)
     .png()
     .toBuffer();

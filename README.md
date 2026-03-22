@@ -216,6 +216,8 @@ npm run dev
 
 Use **`npm run dev`** (not `dev:web` only) so `/api/*` and pages like `/gh/torvalds` work. **Supabase is optional locally:** GitHub cards are cached in server RAM without it (no percentile rankings until you add Supabase + migrations `002`/`003`).
 
+**Node.js:** Use **v20+** (see `package.json` `engines`). Older versions (e.g. v19) may not load `sharp`; the API process will still start so `/api/gh` works, but `/gh/*/card.png` may return 503 until you upgrade Node.
+
 No server AI key? Resume generation falls back to "bring your own key" in the UI. GitHub cards need **no** Anthropic/OpenAI key (stats are deterministic). Optional: `GITHUB_TOKEN` in `.env` for a higher GitHub API rate limit.
 
 ## Production Deployment (Railway)
