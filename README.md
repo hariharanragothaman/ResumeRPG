@@ -1,8 +1,16 @@
 # ⚔️ ResumeRPG
 
-**Transform your resume into a legendary RPG character card.**
+**A developer indexing and ranking platform, disguised as an RPG character card generator.**
 
-Upload a PDF, paste text, or enter a GitHub username — ResumeRPG uses AI to parse your experience into an interactive character sheet with stats, skills, inventory, quests, and a class assignment. Export a physical trading card PNG, share via QR code, or compare two characters side-by-side.
+ResumeRPG transforms GitHub profiles and resumes into interactive RPG character cards with deterministic stats, percentile rankings across thousands of indexed developers, embeddable README badges, social-preview card images, and head-to-head duel mode. Every GitHub user has a card page at `/:username` — no login, no API key, no friction.
+
+**Live:** [resumerpg-production.up.railway.app](https://resumerpg-production.up.railway.app)
+
+## How It Works
+
+1. **GitHub path (viral):** Visit `/:username` → server fetches profile + repos from GitHub API → deterministic stat calculation → Supabase cache → percentile ranking among all indexed developers. No AI needed.
+2. **Resume path (AI):** Upload PDF or paste text → Claude/GPT parses experience into an RPG character sheet → holographic card with export and share.
+3. **Seed script:** Bulk-indexes top GitHub developers by follower count for realistic percentile baselines. 10K developers gives "Top 5% of 10,000" — a credible, shareable stat.
 
 ## Architecture
 
@@ -10,196 +18,186 @@ Upload a PDF, paste text, or enter a GitHub username — ResumeRPG uses AI to pa
 
 ```mermaid
 graph TB
-    subgraph Client["Browser (React + Vite)"]
-        UI[HomePage Tabs]
-        PDF[pdf.js CDN]
-        GH[GitHub API]
-        CS[Client-Side AI Call]
-        LS[localStorage / sessionStorage]
-        CE[Canvas Export]
+    subgraph Client["Browser — React + Vite"]
+        Landing["Landing Page<br/>(example cards hero)"]
+        CardPage["/:username<br/>GitHubCardPage"]
+        DuelPage["/:username/vs/:other<br/>GitHubComparePage"]
+        ResumeParse["Resume Upload<br/>(PDF / paste)"]
+        Export["Canvas → PNG Export"]
     end
 
-    subgraph Server["Express API"]
-        RL[Rate Limiter<br/>10 gen/hr]
-        EP["/api/parse-resume-text<br/>/api/parse-resume"]
-        SH["/api/share"]
-        ST["/api/status"]
+    subgraph Server["Express API — server/index.js"]
+        GHAPI["/api/gh/:username"]
+        ResumeAPI["/api/parse-resume-text"]
+        ShareAPI["/api/share"]
+        Badge["/:username/badge.svg"]
+        CardPNG["/:username/card.png"]
+        OGMeta["OG Meta Injection<br/>(server-side)"]
+        RateLimiter["Rate Limiter<br/>10 gen/hr per IP"]
     end
 
-    subgraph AI["AI Providers"]
-        CL[Anthropic Claude]
-        OA[OpenAI GPT-4.1]
+    subgraph External["External Services"]
+        GitHub["GitHub API<br/>(profile + repos)"]
+        Claude["Anthropic Claude"]
+        Supabase["Supabase Postgres<br/>(github_cards, cards)"]
     end
 
-    UI -->|PDF upload| PDF
-    UI -->|GitHub username| GH
-    UI -->|resume text| CS
-    UI -->|resume text| EP
-    CS -->|direct from browser| CL
-    CS -->|direct from browser| OA
-    EP --> RL --> CL
-    UI --> CE -->|PNG download| User((User))
-    UI --> LS
-    UI --> SH
-    ST -->|hasApiKey?| UI
+    subgraph Seed["scripts/seed.js"]
+        Discovery["GitHub Search API<br/>(discover top users)"]
+        BatchUpsert["Batch upsert<br/>(25 per batch)"]
+        Recalc["recalc_percentiles()"]
+    end
 
-    style Client fill:#0c0c1d,stroke:#a855f7,color:#f1f5f9
-    style Server fill:#111128,stroke:#3b82f6,color:#f1f5f9
-    style AI fill:#1a0a2e,stroke:#f59e0b,color:#f1f5f9
+    Landing --> CardPage
+    CardPage --> GHAPI
+    DuelPage --> GHAPI
+    ResumeParse --> ResumeAPI
+    ResumeAPI --> RateLimiter --> Claude
+    GHAPI --> GitHub
+    GHAPI --> Supabase
+    Badge --> Supabase
+    CardPNG --> Supabase
+    OGMeta --> Supabase
+    CardPage --> Export
+    Discovery --> GitHub
+    BatchUpsert --> Supabase
+    Recalc --> Supabase
 ```
 
-### Two API Key Paths
-
-```mermaid
-flowchart LR
-    Start([User opens app]) --> Check{Server has<br/>ANTHROPIC_API_KEY?}
-    Check -->|Yes| Proxy["Calls go through<br/>Express → Claude"]
-    Check -->|No| BYOK["User enters own key<br/>(sessionStorage)"]
-    BYOK --> Direct["Browser calls<br/>Anthropic/OpenAI directly"]
-    Proxy --> Card([Character Card])
-    Direct --> Card
-
-    style Start fill:#0c0c1d,stroke:#a855f7,color:#f1f5f9
-    style Card fill:#0c0c1d,stroke:#22c55e,color:#f1f5f9
-```
-
-### Component Tree
-
-```mermaid
-graph TD
-    App --> Layout
-    Layout --> Starfield
-    App --> HomePage
-    App --> SharePage
-
-    HomePage --> ThemePicker["Theme Picker<br/>(5 themes)"]
-    HomePage --> Tabs["Tabs: Generate / Gallery / Compare"]
-
-    Tabs --> Generate
-    Tabs --> GalleryView
-    Tabs --> CompareView
-
-    Generate --> InputMode{"Input Mode"}
-    InputMode --> Resume["PDF Upload + Text Paste"]
-    InputMode --> GitHub["GitHub Username"]
-    Generate --> HolographicCard
-    HolographicCard --> CardFront
-    HolographicCard --> CardBack
-
-    CardFront --> Particles
-    CardFront --> StatBar
-    CompareView --> RadarChart["Recharts RadarChart"]
-    CompareView --> CardFront2[CardFront x2]
-
-    style App fill:#0c0c1d,stroke:#a855f7,color:#f1f5f9
-    style HolographicCard fill:#1a0a2e,stroke:#f59e0b,color:#f1f5f9
-```
-
-### Data Flow: Character Generation
+### Data Flow: GitHub Card (Viral Path)
 
 ```mermaid
 sequenceDiagram
-    participant U as User
-    participant HP as HomePage
-    participant API as api.ts
-    participant AI as Claude / OpenAI
-    participant S as storage.ts
-
-    U->>HP: Upload PDF or paste resume text
-    HP->>API: parseResumeText() or parseResumeClientSide()
-    API->>AI: Send resume text
-    AI-->>API: Raw JSON response
-    API->>API: normalizeCharacter() — clamp stats, validate class/rarity
-    API-->>HP: CharacterSheet object
-    HP->>S: saveCharacter() → localStorage
-    HP->>HP: Render HolographicCard (front + back)
-    U->>HP: Click Export
-    HP->>HP: exportTradingCard() → Canvas → PNG download
-```
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant HP as HomePage
-    participant GH as GitHubCardPage
-    participant SRV as Express /api/gh
+    participant U as User / Social Crawler
+    participant S as Express Server
+    participant GH as GitHub API
     participant DB as Supabase
+    participant R as React SPA
 
-    U->>HP: Enter GitHub username
-    HP->>GH: navigate to /gh/username
-    GH->>SRV: GET /api/gh/username
-    SRV->>DB: Cache + percentile stats
-    SRV-->>GH: CharacterSheet + percentiles
-    GH->>GH: HolographicCard, badges, duel link
+    U->>S: GET /torvalds
+    S->>S: OG meta injection (og:image → /torvalds/card.png)
+    S-->>U: HTML with social preview meta tags
+    U->>R: SPA renders GitHubCardPage
+    R->>S: GET /api/gh/torvalds
+    S->>DB: Check github_cards cache
+    alt Cache hit (< 24h)
+        DB-->>S: Cached character + percentiles
+    else Cache miss or stale
+        S->>GH: GET /users/torvalds + /repos
+        GH-->>S: Profile + repos JSON
+        S->>S: calculateStats() → deterministic
+        S->>DB: Upsert github_cards row
+        S->>DB: recalc_percentiles() (async)
+    end
+    S-->>R: { character, percentiles, meta }
+    R->>R: Render card + percentile badges + CTA
 ```
+
+### Route Map
+
+| Route | Component / Handler | Description |
+|-------|-------------------|-------------|
+| `/` | `HomePage` | Landing hero with example cards, theme picker, generate/gallery/compare tabs |
+| `/:username` | `GitHubCardPage` | Public GitHub card with percentiles, export, share, duel link, "What's YOUR card?" CTA |
+| `/:username/vs` | `GitHubComparePage` | Duel mode input form |
+| `/:username/vs/:other` | `GitHubComparePage` | Head-to-head radar chart + side-by-side cards |
+| `/share/:id` | `SharePage` | View a shared resume-based card |
+| `/privacy` | `PrivacyPage` | Privacy policy |
+| `/api/gh/:username` | Express | GitHub card JSON API |
+| `/api/gh/:username/vs/:other` | Express | Duel comparison API |
+| `/api/gh-stats` | Express | Global cohort stats (total cards, avg power) |
+| `/api/parse-resume-text` | Express | Resume → AI → character JSON |
+| `/api/share` | Express | Save shared card |
+| `/:username/badge.svg` | Express | Embeddable SVG badge for README |
+| `/:username/card.png` | Express | PNG card image for social previews |
+| `/api/health` | Express | Health check endpoint |
+
+Legacy `/gh/:username/badge.svg` and `/gh/:username/card.png` return 301 redirects to the new paths.
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| **AI Resume Parsing** | Claude Opus 4.6 or GPT-4.1 converts resume text into a structured RPG character |
-| **GitHub cards** | `/gh/:username` — server-built card from public API data (deterministic stats), Supabase cache, percentile rankings, README SVG badge, PNG preview, duel at `/gh/:user/vs/:other`. Homepage GitHub tab navigates here. |
-| **5 Visual Themes** | Dark Fantasy, Cyberpunk, Pixel Art, Anime, Corporate — each with unique fonts, colors, and particle effects |
-| **3D Holographic Card** | Mouse-tracking tilt with holographic shimmer, click to flip between front (stats) and back (lore/inventory) |
+| **GitHub Cards** | `/:username` — deterministic RPG card from public GitHub data. Cached 24h in Supabase. No AI, no API key needed. |
+| **Percentile Rankings** | Stats ranked across all indexed developers. Seed 10K for "Top 5% of 10,000 developers." |
+| **Social Previews** | Server-side OG meta injection — sharing a card link on Twitter/Slack/Discord shows the card image automatically |
+| **Dynamic Titles** | Browser tab shows `@username — Lv.X ClassName | ResumeRPG` |
+| **README Badges** | `/:username/badge.svg` — embeddable badge with level, class, and rarity |
+| **Card Images** | `/:username/card.png` — server-rendered PNG via sharp for social preview and export |
+| **Duel Mode** | `/:username/vs/:other` — radar chart comparison with shareable results |
+| **Viral CTA** | "What's YOUR card?" input on every card page converts viewers into users |
+| **Landing Hero** | Homepage shows 3 example cards (Torvalds, Abramov, Sorhus) + cohort count |
+| **AI Resume Parsing** | Claude or GPT converts resume text into structured RPG character |
+| **5 Visual Themes** | Dark Fantasy, Cyberpunk, Pixel Art, Anime, Corporate — fonts, colors, particles |
+| **3D Holographic Card** | Mouse-tracking tilt, holographic shimmer, click to flip front/back |
 | **Trading Card Export** | 750×1050 PNG with stats, skills, QR code — sized for physical printing |
-| **Gallery** | All generated characters saved to localStorage with load/delete |
-| **Compare Mode** | Side-by-side radar chart comparison of two characters |
-| **Rate Limiting** | 10 gen/hr + 30 share/hr per IP (configurable via env vars) |
-| **Bring Your Own Key** | Client-side key stored in sessionStorage, cleared on tab close, calls go direct to provider |
+| **Gallery** | Saved characters in localStorage with load/delete |
+| **Compare Mode** | Side-by-side radar chart comparison of resume-based characters |
+| **BYOK** | Client-side API key (sessionStorage) when server has no key configured |
+| **Rate Limiting** | 10 gen/hr, 30 share/hr per IP (configurable) |
+| **Seed Script** | Bulk-index top GitHub developers for realistic percentile baselines |
 
 ## Power Profile Stats
 
-| Stat | What it measures |
-|------|-----------------|
-| **IMPACT** | Leadership, team size, business outcomes, scope of responsibility |
-| **CRAFT** | Technical depth, education, publications, certifications |
-| **RANGE** | Breadth of skills, languages, frameworks, cross-domain versatility |
-| **TENURE** | Years of experience, longevity, career consistency |
-| **VISION** | Strategic thinking, architecture decisions, domain expertise |
-| **INFLUENCE** | Community presence, speaking, open source, awards |
+| Stat | Resume (AI) | GitHub (Deterministic) |
+|------|-------------|----------------------|
+| **IMPACT** | Leadership, team size, business outcomes | Stars, forks, repo count |
+| **CRAFT** | Technical depth, education, certifications | Language count, repo count, recent activity |
+| **RANGE** | Breadth of skills, cross-domain versatility | Language diversity, multi-language repos |
+| **TENURE** | Years of experience, career consistency | Years since oldest repo, repo count |
+| **VISION** | Strategic thinking, architecture decisions | Star concentration, top repo quality, bio |
+| **INFLUENCE** | Community presence, speaking, awards | Followers, follower/following ratio, company |
+
+Each stat is scored 1–20. Total power (max 120) determines rarity: Common (< 40), Uncommon (40–54), Rare (55–74), Epic (75–94), Legendary (95+).
 
 ## Project Structure
 
 ```
 ResumeRPG/
 ├── server/
-│   ├── index.js              # Express — CORS, rate limit, Claude proxy, share store, GitHub card API, badge/card.png routes, static
+│   ├── index.js              # Express — routes, CORS, rate limiting, OG meta injection, SPA serving
 │   └── lib/
-│       ├── github-cards.js   # GitHub fetch, deterministic character, Supabase cache, percentiles
+│       ├── github-cards.js   # GitHub fetch, deterministic stats, Supabase cache, percentiles
 │       ├── badge.js          # SVG badges for README embeds
-│       └── card-image.js     # PNG card image (sharp) for social previews
+│       └── card-image.js     # PNG card image via sharp for social previews
+├── scripts/
+│   └── seed.js              # Bulk GitHub user indexer (discovery → fetch → generate → upsert)
 ├── supabase/
 │   └── migrations/
 │       ├── 001_create_cards.sql   # Shared resume cards table
-│       ├── 002_github_cards.sql   # GitHub-sourced cards + percentile RPC
+│       ├── 002_github_cards.sql   # GitHub cards table + percentile RPC + stats view
 │       └── 003_increment_rpc.sql  # access_count increment helper
 ├── src/
+│   ├── App.tsx               # React Router — /, /privacy, /share/:id, /:username, /:username/vs
 │   ├── components/
 │   │   ├── CardFront.tsx      # Front face — avatar, stats, skills, QR
 │   │   ├── CardBack.tsx       # Back face — lore, inventory, quests, boss battles
-│   │   ├── HolographicCard.tsx# 3D tilt + flip wrapper
+│   │   ├── HolographicCard.tsx# 3D tilt + flip wrapper with ResizeObserver
 │   │   ├── CompareView.tsx    # Radar chart + side-by-side cards
 │   │   ├── GalleryView.tsx    # Saved characters list
 │   │   ├── StatBar.tsx        # Animated stat bar (theme-aware)
 │   │   ├── Particles.tsx      # Rising particle effects
 │   │   ├── Starfield.tsx      # Background star animation
-│   │   └── Layout.tsx         # Shell — fonts, animations, theme background
+│   │   └── Layout.tsx         # Shell — fonts, animations, theme background, footer
 │   ├── lib/
 │   │   ├── api.ts             # AI provider calls, system prompt, normalizer
 │   │   ├── config.ts          # Themes, class/rarity config, stat names
 │   │   ├── export.ts          # Canvas trading card renderer
 │   │   ├── pdf.ts             # Client-side PDF extraction via pdf.js
 │   │   ├── share.ts           # QR generation, share encoding
+│   │   ├── siteUrl.ts         # Canonical URL helper (VITE_PUBLIC_SITE_URL)
 │   │   └── storage.ts         # localStorage persistence
 │   ├── pages/
-│   │   ├── HomePage.tsx       # Main app — tabs, theme picker, resume + link to GitHub card
-│   │   ├── GitHubCardPage.tsx # Public GitHub card + percentiles + embed snippet
-│   │   ├── GitHubComparePage.tsx # Duel / radar compare
+│   │   ├── HomePage.tsx       # Landing hero + tabs (generate, gallery, compare)
+│   │   ├── GitHubCardPage.tsx # GitHub card + percentiles + CTA + embed snippet
+│   │   ├── GitHubComparePage.tsx # Duel mode — radar + cards + CTA
 │   │   ├── SharePage.tsx      # Shared character viewer
 │   │   └── PrivacyPage.tsx    # Privacy policy
 │   └── types/
 │       └── character.ts       # TypeScript interfaces (CharacterSheet, StatBlock, etc.)
-├── railway.json               # Railway deployment config
+├── index.html                # Default OG meta tags (replaced server-side per route)
+├── railway.json              # Railway deployment config
+├── DEPLOYMENT.md             # Production deployment checklist
 └── package.json
 ```
 
@@ -207,69 +205,87 @@ ResumeRPG/
 
 ```bash
 npm install
-cp .env.example .env          # optionally add ANTHROPIC_API_KEY
+cp .env.example .env          # add keys (see below)
 npm run dev
 ```
 
 - **Web:** http://localhost:5173
 - **API:** http://127.0.0.1:8787 (proxied as `/api/*` from Vite)
 
-Use **`npm run dev`** (not `dev:web` only) so `/api/*` and pages like `/gh/torvalds` work. **Supabase is optional locally:** GitHub cards are cached in server RAM without it (no percentile rankings until you add Supabase + migrations `002`/`003`).
+Use **`npm run dev`** (not `dev:web`) so API routes and `/:username` pages work.
 
-**Node.js:** Use **v20+** (see `package.json` `engines`). Older versions (e.g. v19) may not load `sharp`; the API process will still start so `/api/gh` works, but `/gh/*/card.png` may return 503 until you upgrade Node.
+**Supabase is optional locally:** GitHub cards are cached in server RAM without it (no percentile rankings until you add Supabase + migrations 001–003).
 
-No server AI key? Resume generation falls back to "bring your own key" in the UI. GitHub cards need **no** Anthropic/OpenAI key (stats are deterministic). Optional: `GITHUB_TOKEN` in `.env` for a higher GitHub API rate limit.
+**No server AI key?** Resume generation falls back to BYOK in the UI. GitHub cards need **no** AI key (stats are deterministic).
+
+## Seeding the Database
+
+The seed script bulk-indexes top GitHub developers for realistic percentile rankings.
+
+```bash
+# Requires GITHUB_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY in .env
+
+npm run seed:small     # 1,000 users (~25 min)
+npm run seed           # 10,000 users (~4 hours)
+npm run seed:resume    # Resume from where you left off
+```
+
+**How it works:**
+1. **Discovery** — GitHub Search API finds top users by follower count across 28 ranges
+2. **Fetch + Generate** — Profile + repos → deterministic character (same logic as server)
+3. **Batch upsert** — Every 25 users, upserts into `github_cards` (safe to re-run)
+4. **Percentile recalc** — Calls `recalc_percentiles()` at the end
+
+**Safety:** Resumable via `scripts/.seed-progress.json`, auto-sleeps on rate limit, progress reports every 50 users. Use `--dry-run` to test without writing to Supabase.
 
 ## Production Deployment (Railway)
 
-See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full checklist (Supabase migrations **001 → 002 → 003**, env vars, health checks).
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full checklist.
 
 ### Short version
 
-1. **Supabase** — Run `001_create_cards.sql`, then `002_github_cards.sql`, then `003_increment_rpc.sql` in the SQL Editor.
-2. **Railway** — Deploy from GitHub; Nixpacks runs `npm ci`, then `npm run build`; start runs `node server/index.js` ([railway.json](./railway.json)).
-3. **Env vars** — At minimum: `NODE_ENV=production`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS` (your real `https://` origins). Recommended: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, and **`VITE_PUBLIC_SITE_URL`** (set before build, e.g. `https://yourdomain.com`) so QR codes and README badge copy use the correct domain.
+1. **Supabase** — Run migrations `001` → `002` → `003` in the SQL Editor
+2. **Railway** — Deploy from GitHub; Nixpacks runs `npm ci` then `npm run build`; start runs `node server/index.js`
+3. **Env vars** — `NODE_ENV=production`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `VITE_PUBLIC_SITE_URL`
+4. **Seed** — Run `npm run seed:small` locally to populate the cohort
 
 ## Scripts
 
 | Script | Description |
 |--------|-------------|
 | `npm run dev` | Vite + Express API together (dev) |
-| `npm run build` | Production client build |
+| `npm run build` | TypeScript check + Vite production build |
 | `npm start` | Production server (serves built client + API) |
 | `npm run lint` | ESLint |
+| `npm run seed` | Seed 10,000 GitHub developers into Supabase |
+| `npm run seed:small` | Seed 1,000 developers (~25 min) |
+| `npm run seed:resume` | Resume interrupted seed run |
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | For real generation | — | Claude API key |
-| `SUPABASE_URL` | For persistent links | — | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | For persistent links | — | Supabase service role key (server only) |
+| `ANTHROPIC_API_KEY` | For AI resume parsing | — | Claude API key |
+| `SUPABASE_URL` | For production | — | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | For production | — | Supabase service role key (server only) |
 | `ALLOWED_ORIGINS` | In production | — | Comma-separated allowed CORS origins |
 | `NODE_ENV` | In production | — | Set to `production` |
-| `PORT` | No | `8787` | Server port (Railway sets this automatically) |
-| `VITE_PUBLIC_SITE_URL` | Recommended (prod build) | — | Canonical `https://` site URL for QR + README snippets (no trailing slash) |
-| `PUBLIC_SITE_URL` | Optional | `https://resumerpg.app` | Server PNG card footer (`/gh/*/card.png`) |
-| `GITHUB_TOKEN` | Optional | — | GitHub PAT for higher API rate limits on `/api/gh` |
-| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Model to use |
-| `RATE_LIMIT_GENERATE` | No | `10` | Max generations + GitHub card API calls per IP per hour |
+| `PORT` | No | `8787` | Server port (Railway sets this) |
+| `VITE_PUBLIC_SITE_URL` | Recommended | — | Canonical `https://` URL for badges, QR codes, OG tags (set before build) |
+| `PUBLIC_SITE_URL` | Optional | `https://resumerpg.app` | Server PNG card footer |
+| `GITHUB_TOKEN` | Recommended | — | GitHub PAT — 5K req/hr vs 60/hr anonymous |
+| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Model for resume parsing |
+| `RATE_LIMIT_GENERATE` | No | `10` | Max generations per IP per hour |
 | `RATE_LIMIT_SHARE` | No | `30` | Max shares per IP per hour |
 
 ## Tech Stack
 
-**Frontend:** React 19, TypeScript, Vite 6, Tailwind CSS 3, Recharts, pdf.js (CDN)
-**Backend:** Express, Anthropic SDK, Supabase, pdf-parse, multer
-**AI:** Claude Opus 4.6 (Anthropic) / GPT-4.1 (OpenAI)
-**Storage:** localStorage (characters), sessionStorage (API keys), Supabase Postgres (shared cards)
-
-## Roadmap
-
-- LinkedIn OAuth + structured import
-- Pixi/Canvas pixel avatar renderer
-- Print-ready 2.5×3.5" export at 300 DPI
-- Supabase auth and cohort-based rarity
-- Public compare links for recruiters
+**Frontend:** React 19, TypeScript, Vite 6, Recharts, React Router 7, pdf.js (CDN)
+**Backend:** Express 4, Supabase JS v2, Anthropic SDK, sharp, multer, pdf-parse
+**AI:** Claude Sonnet 4.6 (Anthropic) / GPT-4.1 (OpenAI) — resume path only
+**Database:** Supabase Postgres (github_cards with percentile RPCs, shared resume cards)
+**Deployment:** Railway (Nixpacks), Supabase hosted Postgres
+**Storage:** localStorage (gallery), sessionStorage (BYOK API keys)
 
 ## License
 
