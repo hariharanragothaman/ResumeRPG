@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { CardFront } from "@/components/CardFront";
 import { CardBack } from "@/components/CardBack";
 import { HolographicCard } from "@/components/HolographicCard";
-import { STAT_NAMES, THEMES } from "@/lib/config";
+import { STAT_NAMES } from "@/lib/config";
 import { exportTradingCard } from "@/lib/export";
 import { shareCharacter } from "@/lib/share";
 import type { CharacterSheet } from "@/types/character";
@@ -40,7 +40,6 @@ export function GitHubCardPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [cohort, setCohort] = useState<CohortStats | null>(null);
-  const T = THEMES.fantasy;
 
   useEffect(() => {
     if (!username) return;

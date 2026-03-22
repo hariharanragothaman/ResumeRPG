@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { CardFront } from "@/components/CardFront";
 import { CardBack } from "@/components/CardBack";
 import { HolographicCard } from "@/components/HolographicCard";
@@ -8,7 +9,6 @@ import { LOADING_MESSAGES, THEMES, type ThemeName } from "@/lib/config";
 import { exportTradingCard } from "@/lib/export";
 import { extractPdfText } from "@/lib/pdf";
 import { shareCharacter } from "@/lib/share";
-import { fetchGitHub, ghToCharacter } from "@/lib/github";
 import { loadIndex, saveCharacter } from "@/lib/storage";
 import type { SavedEntry } from "@/lib/storage";
 import {
@@ -24,6 +24,7 @@ type Step = "input" | "loading" | "result";
 type InputMode = "resume" | "github";
 
 export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeChange: (t: ThemeName) => void }) {
+  const navigate = useNavigate();
   const T = THEMES[theme];
   const accent = T.light ? "#6d28d9" : "#a855f7";
 
@@ -40,7 +41,6 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
   const [savedChars, setSavedChars] = useState<SavedEntry[]>([]);
   const [inputMode, setInputMode] = useState<InputMode>("resume");
   const [ghUser, setGhUser] = useState("");
-  const [ghLoading, setGhLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [serverHasKey, setServerHasKey] = useState<boolean | null>(null);
@@ -112,22 +112,10 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
     }
   }, [resumeText, needsClientKey, clientApiKey, provider, refreshSaved]);
 
-  const generateGH = useCallback(async () => {
-    if (!ghUser.trim()) return;
-    setGhLoading(true);
-    setError(null);
-    try {
-      const gh = await fetchGitHub(ghUser.trim());
-      const ch = ghToCharacter(gh);
-      setCharacter(ch);
-      saveCharacter(ch);
-      refreshSaved();
-      setStep("result");
-    } catch (err) {
-      setError("GitHub fetch failed: " + (err instanceof Error ? err.message : "unknown"));
-    }
-    setGhLoading(false);
-  }, [ghUser, refreshSaved]);
+  const goToGitHubCard = useCallback(() => {
+    const u = ghUser.trim().replace(/^@+/, "");
+    if (u) navigate(`/gh/${encodeURIComponent(u)}`);
+  }, [ghUser, navigate]);
 
   const handleExport = async () => {
     if (!character) return;
@@ -296,12 +284,12 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={ghUser} onChange={(e) => setGhUser(e.target.value)}
                   placeholder="e.g. torvalds"
-                  onKeyDown={(e) => { if (e.key === "Enter") void generateGH(); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") goToGitHubCard(); }}
                   style={{ flex: 1, background: T.light ? "white" : "rgba(10,10,26,0.8)", color: T.text, border: "1px solid " + T.surfaceBorder, borderRadius: 10, padding: "12px 14px", fontFamily: T.bodyFont, fontSize: 14 }}
                 />
               </div>
               <p style={{ fontFamily: T.bodyFont, fontSize: 11, color: T.textDim, marginTop: 8, lineHeight: 1.5 }}>
-                Fetches your public repos, languages, stars, and followers to auto-generate stats. Repos → IMPACT, years active → TENURE, language diversity → RANGE, stars → VISION, followers → INFLUENCE.
+                Opens your public GitHub card page: server-built stats (cached), percentile rankings vs other indexed devs, README badge embed, and duel mode. No API key needed.
               </p>
             </div>
           )}
@@ -313,8 +301,8 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
           )}
 
           <button
-            onClick={() => { if (inputMode === "github") void generateGH(); else void generate(); }}
-            disabled={inputMode === "github" ? (!ghUser.trim() || ghLoading) : !canGenerate}
+            onClick={() => { if (inputMode === "github") goToGitHubCard(); else void generate(); }}
+            disabled={inputMode === "github" ? !ghUser.trim() : !canGenerate}
             style={{
               width: "100%", padding: "13px 20px",
               background: (inputMode === "github" ? ghUser.trim() : canGenerate) ? "linear-gradient(135deg,#7c3aed," + accent + ")" : (T.light ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)"),
@@ -325,7 +313,7 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
               boxShadow: (inputMode === "github" ? ghUser.trim() : canGenerate) ? "0 4px 20px rgba(168,85,247,0.3)" : "none",
             }}
           >
-            {ghLoading ? "⏳ FETCHING..." : inputMode === "github" ? "🐙 GENERATE FROM GITHUB" : "🎲 GENERATE CHARACTER"}
+            {inputMode === "github" ? "🐙 OPEN GITHUB CARD" : "🎲 GENERATE CHARACTER"}
           </button>
         </div>
       )}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CardFront } from "@/components/CardFront";
-import { STAT_NAMES, THEMES } from "@/lib/config";
+import { STAT_NAMES } from "@/lib/config";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Legend } from "recharts";
 import type { CharacterSheet } from "@/types/character";
 import { CLASS_CONFIG } from "@/lib/config";
@@ -24,7 +24,6 @@ export function GitHubComparePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [otherInput, setOtherInput] = useState(other || "");
-  const T = THEMES.fantasy;
 
   useEffect(() => {
     if (!username || !other) return;
