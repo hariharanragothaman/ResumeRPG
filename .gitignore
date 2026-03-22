@@ -8,3 +8,6 @@ dist
 
 # Local full-repo export (see git archive)
 /ResumeRPG-repo.zip
+
+# Seed script progress (resumable state)
+scripts/.seed-progress.json
