@@ -21,7 +21,7 @@ export function CardBack({
       width: "100%", background: T.cardBg, borderRadius: isPixel ? 4 : 14,
       border: (isPixel ? "3px solid " : "2px solid ") + (T.light ? rc.border + "44" : rc.border + "55"),
       boxShadow: T.light ? "0 4px 24px rgba(0,0,0,0.08)" : rc.glow + ",0 16px 48px rgba(0,0,0,0.5)",
-      overflow: "hidden", position: "relative", minHeight: 300,
+      overflow: "hidden", position: "relative", minHeight: "100%", boxSizing: "border-box",
     }}>
       {T.scanlines && <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 10, opacity: 0.025, backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(255,255,255,1) 2px,rgba(255,255,255,1) 3px)" }} />}
 
