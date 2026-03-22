@@ -39,7 +39,11 @@ async function fetchGitHubProfile(username) {
   if (!userRes.ok) throw new Error(`GitHub API error: ${userRes.status}`);
 
   const user = await userRes.json();
-  const repos = Array.isArray(await reposRes.json()) ? await reposRes.clone().json() : [];
+  const reposJson = await reposRes.json().catch(() => ({}));
+  const repos = Array.isArray(reposJson) ? reposJson : [];
+  if (!reposRes.ok && repos.length === 0) {
+    console.warn(`[github-cards] repos request ${reposRes.status} for ${username} — continuing with empty repo list`);
+  }
 
   const languages = {};
   let totalStars = 0, totalForks = 0;
