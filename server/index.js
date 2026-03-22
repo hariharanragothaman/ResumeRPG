@@ -9,7 +9,12 @@ import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { getOrCreateCard, getGlobalStats, startPeriodicRecalc } from "./lib/github-cards.js";
+import {
+  getOrCreateCard,
+  getOrCreateCardMemory,
+  getGlobalStats,
+  startPeriodicRecalc,
+} from "./lib/github-cards.js";
 import { generateBadge, generateCardBadge } from "./lib/badge.js";
 import { generateCardImage } from "./lib/card-image.js";
 
@@ -245,6 +250,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 *
 function newShareId() { return randomBytes(9).toString("base64url"); }
 function getClientIp(req) { return req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || "unknown"; }
 
+/** GitHub card: Supabase when configured, else in-memory (local dev). */
+async function loadGitHubCard(username) {
+  if (supabase) return getOrCreateCard(supabase, username);
+  return getOrCreateCardMemory(username);
+}
+
 // ─── Routes ─────────────────────────────────────────────────────────
 
 app.get("/api/health", (_req, res) => {
@@ -302,9 +313,8 @@ app.get("/api/share/:id", async (req, res) => {
 // ─── GitHub Card Routes ─────────────────────────────────────────────
 
 app.get("/api/gh/:username", rateLimit("ghcard", RATE_MAX_GENERATE), async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: "Database not configured. GitHub cards require Supabase." });
   try {
-    const result = await getOrCreateCard(supabase, req.params.username);
+    const result = await loadGitHubCard(req.params.username);
     res.json(result);
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message || "Failed to load card" });
@@ -312,11 +322,10 @@ app.get("/api/gh/:username", rateLimit("ghcard", RATE_MAX_GENERATE), async (req,
 });
 
 app.get("/api/gh/:username/vs/:other", rateLimit("ghcard", RATE_MAX_GENERATE), async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: "Database not configured" });
   try {
     const [left, right] = await Promise.all([
-      getOrCreateCard(supabase, req.params.username),
-      getOrCreateCard(supabase, req.params.other),
+      loadGitHubCard(req.params.username),
+      loadGitHubCard(req.params.other),
     ]);
     res.json({ left, right });
   } catch (e) {
@@ -331,9 +340,8 @@ app.get("/api/gh-stats", async (req, res) => {
 });
 
 app.get("/gh/:username/badge.svg", rateLimit("badge", 120), async (req, res) => {
-  if (!supabase) return res.status(503).send("Database not configured");
   try {
-    const result = await getOrCreateCard(supabase, req.params.username);
+    const result = await loadGitHubCard(req.params.username);
     const style = req.query.style || "flat";
     const svg = style === "card"
       ? generateCardBadge(result.character, result.percentiles)
@@ -349,11 +357,10 @@ app.get("/gh/:username/badge.svg", rateLimit("badge", 120), async (req, res) => 
 });
 
 app.get("/gh/:username/card.png", rateLimit("cardimg", 60), async (req, res) => {
-  if (!supabase) return res.status(503).send("Database not configured");
   try {
     const [result, stats] = await Promise.all([
-      getOrCreateCard(supabase, req.params.username),
-      getGlobalStats(supabase),
+      loadGitHubCard(req.params.username),
+      supabase ? getGlobalStats(supabase) : Promise.resolve(null),
     ]);
     const png = await generateCardImage(result.character, result.percentiles, {
       cohortSize: stats?.total_cards || null,
@@ -383,6 +390,7 @@ app.listen(PORT, () => {
   console.log(`\nResumeRPG ${IS_PROD ? "PRODUCTION" : "dev"} → http://127.0.0.1:${PORT}`);
   console.log(`  Claude:  ${anthropic ? MODEL : "demo mode (no key)"}`);
   console.log(`  Storage: ${supabase ? "Supabase" : "in-memory (dev only)"}`);
+  console.log(`  GH cards: ${supabase ? "Supabase + percentiles" : "in-memory (no percentiles — add Supabase for prod)"}`);
   console.log(`  GitHub:  ${process.env.GITHUB_TOKEN ? "authenticated (5K req/hr)" : "anonymous (60 req/hr)"}`);
   console.log(`  CORS:    ${IS_PROD ? ALLOWED_ORIGINS.join(", ") || "⚠ NONE — set ALLOWED_ORIGINS!" : "localhost/*"}`);
   console.log(`  Limits:  ${RATE_MAX_GENERATE} gen/hr, ${RATE_MAX_SHARE} share/hr per IP\n`);

@@ -47,13 +47,27 @@ export function GitHubCardPage() {
     setError(null);
     Promise.all([
       fetch(`/api/gh/${encodeURIComponent(username)}`)
-        .then((r) => { if (!r.ok) throw new Error(r.status === 404 ? "GitHub user not found" : "Failed to load card"); return r.json() as Promise<CardResult>; }),
+        .then(async (r) => {
+          if (!r.ok) {
+            const body = await r.json().catch(() => ({})) as { error?: string };
+            const msg = typeof body.error === "string"
+              ? body.error
+              : (r.status === 404 ? "GitHub user not found" : "Failed to load card");
+            throw new Error(msg);
+          }
+          return r.json() as Promise<CardResult>;
+        }),
       fetch("/api/gh-stats")
         .then((r) => r.ok ? r.json() as Promise<CohortStats> : null)
         .catch(() => null),
     ])
       .then(([cardResult, statsResult]) => { setResult(cardResult); setCohort(statsResult); })
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        const isNetwork = e instanceof TypeError; // e.g. API not running — fetch fails
+        setError(isNetwork
+          ? "Cannot reach API. Use npm run dev (starts Vite + API on :8787), not dev:web only."
+          : (e instanceof Error ? e.message : "Failed to load card"));
+      })
       .finally(() => setLoading(false));
   }, [username]);
 

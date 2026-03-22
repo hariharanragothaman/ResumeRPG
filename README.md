@@ -214,7 +214,9 @@ npm run dev
 - **Web:** http://localhost:5173
 - **API:** http://127.0.0.1:8787 (proxied as `/api/*` from Vite)
 
-No server API key? The app falls back to "bring your own key" mode — enter an Anthropic or OpenAI key in the UI. Or use GitHub mode, which needs no key at all.
+Use **`npm run dev`** (not `dev:web` only) so `/api/*` and pages like `/gh/torvalds` work. **Supabase is optional locally:** GitHub cards are cached in server RAM without it (no percentile rankings until you add Supabase + migrations `002`/`003`).
+
+No server AI key? Resume generation falls back to "bring your own key" in the UI. GitHub cards need **no** Anthropic/OpenAI key (stats are deterministic). Optional: `GITHUB_TOKEN` in `.env` for a higher GitHub API rate limit.
 
 ## Production Deployment (Railway)
 

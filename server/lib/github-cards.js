@@ -318,6 +318,60 @@ async function getOrCreateCard(supabase, username) {
   };
 }
 
+// ── In-memory fallback (local dev without Supabase) ─────────────────
+const MEMORY_GH_CACHE = new Map();
+
+/**
+ * Same card payload as getOrCreateCard, but stores in RAM with TTL.
+ * Percentiles are always null; cohort stats unavailable.
+ */
+async function getOrCreateCardMemory(username) {
+  const normalizedUsername = username.toLowerCase().trim();
+  if (!/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(normalizedUsername)) {
+    throw Object.assign(new Error("Invalid GitHub username"), { status: 400 });
+  }
+
+  const row = MEMORY_GH_CACHE.get(normalizedUsername);
+  if (row && Date.now() - new Date(row.refreshed_at).getTime() < CACHE_TTL_MS) {
+    row.access_count = (row.access_count || 0) + 1;
+    return {
+      character: row.character,
+      percentiles: null,
+      meta: {
+        cached: true,
+        refreshedAt: row.refreshed_at,
+        accessCount: row.access_count,
+      },
+    };
+  }
+
+  const ghProfile = await fetchGitHubProfile(normalizedUsername);
+  if (!ghProfile) {
+    throw Object.assign(new Error("GitHub user not found"), { status: 404 });
+  }
+
+  const character = generateCharacter(ghProfile);
+  const refreshed_at = new Date().toISOString();
+  const prev = MEMORY_GH_CACHE.get(normalizedUsername);
+  const access_count = (prev?.access_count || 0) + 1;
+
+  MEMORY_GH_CACHE.set(normalizedUsername, {
+    character,
+    refreshed_at,
+    access_count,
+  });
+
+  return {
+    character,
+    percentiles: null,
+    meta: {
+      cached: false,
+      refreshedAt: refreshed_at,
+      accessCount: access_count,
+    },
+  };
+}
+
 // ── Global stats ────────────────────────────────────────────────────
 async function getGlobalStats(supabase) {
   const { data, error } = await supabase
@@ -351,6 +405,7 @@ function startPeriodicRecalc(supabase) {
 
 export {
   getOrCreateCard,
+  getOrCreateCardMemory,
   getGlobalStats,
   startPeriodicRecalc,
   fetchGitHubProfile,
