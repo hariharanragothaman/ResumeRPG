@@ -61,13 +61,13 @@ as $$
   with ranked as (
     select
       username,
-      round(percent_rank() over (order by stat_impact)   * 100, 1) as p_impact,
-      round(percent_rank() over (order by stat_craft)    * 100, 1) as p_craft,
-      round(percent_rank() over (order by stat_range)    * 100, 1) as p_range,
-      round(percent_rank() over (order by stat_tenure)   * 100, 1) as p_tenure,
-      round(percent_rank() over (order by stat_vision)   * 100, 1) as p_vision,
-      round(percent_rank() over (order by stat_influence) * 100, 1) as p_influence,
-      round(percent_rank() over (order by stat_total)    * 100, 1) as p_overall
+      round((percent_rank() over (order by stat_impact)    * 100)::numeric, 1) as p_impact,
+      round((percent_rank() over (order by stat_craft)     * 100)::numeric, 1) as p_craft,
+      round((percent_rank() over (order by stat_range)     * 100)::numeric, 1) as p_range,
+      round((percent_rank() over (order by stat_tenure)    * 100)::numeric, 1) as p_tenure,
+      round((percent_rank() over (order by stat_vision)    * 100)::numeric, 1) as p_vision,
+      round((percent_rank() over (order by stat_influence) * 100)::numeric, 1) as p_influence,
+      round((percent_rank() over (order by stat_total)    * 100)::numeric, 1) as p_overall
     from public.github_cards
   )
   update public.github_cards g

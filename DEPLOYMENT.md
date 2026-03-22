@@ -10,6 +10,8 @@ Run these **in order** in the Supabase SQL Editor:
 2. `supabase/migrations/002_github_cards.sql` — GitHub cards, percentiles, stats view  
 3. `supabase/migrations/003_increment_rpc.sql` — `increment_access_count` RPC  
 
+If you already ran an **older** `002_github_cards.sql` and hit `round(double precision, integer) does not exist`, re-run only the `create or replace function public.recalc_percentiles()` block from the current `002` file in the SQL Editor (the fix is `::numeric` before `round`).
+
 Without Supabase, the API falls back to **in-memory** storage. That is fine for a single local process; it is **not** suitable for multiple Railway instances or restarts (cards and GitHub cache are lost).
 
 ## 2. Railway (or host) environment variables
