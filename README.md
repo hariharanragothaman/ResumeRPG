@@ -101,13 +101,13 @@ graph TD
 sequenceDiagram
     participant U as User
     participant HP as HomePage
-    participant API as api.ts / github.ts
-    participant AI as Claude / OpenAI / GitHub
+    participant API as api.ts
+    participant AI as Claude / OpenAI
     participant S as storage.ts
 
-    U->>HP: Upload PDF / paste text / enter GitHub username
-    HP->>API: parseResumeClientSide() or fetchGitHub()
-    API->>AI: Send resume text or fetch profile
+    U->>HP: Upload PDF or paste resume text
+    HP->>API: parseResumeText() or parseResumeClientSide()
+    API->>AI: Send resume text
     AI-->>API: Raw JSON response
     API->>API: normalizeCharacter() — clamp stats, validate class/rarity
     API-->>HP: CharacterSheet object
@@ -117,12 +117,28 @@ sequenceDiagram
     HP->>HP: exportTradingCard() → Canvas → PNG download
 ```
 
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant HP as HomePage
+    participant GH as GitHubCardPage
+    participant SRV as Express /api/gh
+    participant DB as Supabase
+
+    U->>HP: Enter GitHub username
+    HP->>GH: navigate to /gh/username
+    GH->>SRV: GET /api/gh/username
+    SRV->>DB: Cache + percentile stats
+    SRV-->>GH: CharacterSheet + percentiles
+    GH->>GH: HolographicCard, badges, duel link
+```
+
 ## Features
 
 | Feature | Description |
 |---------|-------------|
 | **AI Resume Parsing** | Claude Opus 4.6 or GPT-4.1 converts resume text into a structured RPG character |
-| **GitHub Mode** | Generate a character from any GitHub username — repos, languages, stars, followers map to stats |
+| **GitHub cards** | `/gh/:username` — server-built card from public API data (deterministic stats), Supabase cache, percentile rankings, README SVG badge, PNG preview, duel at `/gh/:user/vs/:other`. Homepage GitHub tab navigates here. |
 | **5 Visual Themes** | Dark Fantasy, Cyberpunk, Pixel Art, Anime, Corporate — each with unique fonts, colors, and particle effects |
 | **3D Holographic Card** | Mouse-tracking tilt with holographic shimmer, click to flip between front (stats) and back (lore/inventory) |
 | **Trading Card Export** | 750×1050 PNG with stats, skills, QR code — sized for physical printing |
@@ -147,10 +163,16 @@ sequenceDiagram
 ```
 ResumeRPG/
 ├── server/
-│   └── index.js              # Express API — CORS, rate limiter, Claude proxy, Supabase share store, static serving
+│   ├── index.js              # Express — CORS, rate limit, Claude proxy, share store, GitHub card API, badge/card.png routes, static
+│   └── lib/
+│       ├── github-cards.js   # GitHub fetch, deterministic character, Supabase cache, percentiles
+│       ├── badge.js          # SVG badges for README embeds
+│       └── card-image.js     # PNG card image (sharp) for social previews
 ├── supabase/
 │   └── migrations/
-│       └── 001_create_cards.sql  # Schema for the cards table (run in Supabase SQL Editor)
+│       ├── 001_create_cards.sql   # Shared resume cards table
+│       ├── 002_github_cards.sql   # GitHub-sourced cards + percentile RPC
+│       └── 003_increment_rpc.sql  # access_count increment helper
 ├── src/
 │   ├── components/
 │   │   ├── CardFront.tsx      # Front face — avatar, stats, skills, QR
@@ -166,13 +188,15 @@ ResumeRPG/
 │   │   ├── api.ts             # AI provider calls, system prompt, normalizer
 │   │   ├── config.ts          # Themes, class/rarity config, stat names
 │   │   ├── export.ts          # Canvas trading card renderer
-│   │   ├── github.ts          # GitHub profile → character conversion
 │   │   ├── pdf.ts             # Client-side PDF extraction via pdf.js
 │   │   ├── share.ts           # QR generation, share encoding
 │   │   └── storage.ts         # localStorage persistence
 │   ├── pages/
-│   │   ├── HomePage.tsx       # Main app — tabs, theme picker, generation flow
-│   │   └── SharePage.tsx      # Shared character viewer
+│   │   ├── HomePage.tsx       # Main app — tabs, theme picker, resume + link to GitHub card
+│   │   ├── GitHubCardPage.tsx # Public GitHub card + percentiles + embed snippet
+│   │   ├── GitHubComparePage.tsx # Duel / radar compare
+│   │   ├── SharePage.tsx      # Shared character viewer
+│   │   └── PrivacyPage.tsx    # Privacy policy
 │   └── types/
 │       └── character.ts       # TypeScript interfaces (CharacterSheet, StatBlock, etc.)
 ├── railway.json               # Railway deployment config
@@ -190,7 +214,11 @@ npm run dev
 - **Web:** http://localhost:5173
 - **API:** http://127.0.0.1:8787 (proxied as `/api/*` from Vite)
 
-No server API key? The app falls back to "bring your own key" mode — enter an Anthropic or OpenAI key in the UI. Or use GitHub mode, which needs no key at all.
+Use **`npm run dev`** (not `dev:web` only) so `/api/*` and pages like `/gh/torvalds` work. **Supabase is optional locally:** GitHub cards are cached in server RAM without it (no percentile rankings until you add Supabase + migrations `002`/`003`).
+
+**Node.js:** Use **v20+** (see `package.json` `engines`). Older versions (e.g. v19) may not load `sharp`; the API process will still start so `/api/gh` works, but `/gh/*/card.png` may return 503 until you upgrade Node.
+
+No server AI key? Resume generation falls back to "bring your own key" in the UI. GitHub cards need **no** Anthropic/OpenAI key (stats are deterministic). Optional: `GITHUB_TOKEN` in `.env` for a higher GitHub API rate limit.
 
 ## Production Deployment (Railway)
 
