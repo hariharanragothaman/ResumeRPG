@@ -164,7 +164,8 @@ async function generateCardImage(character, percentiles, opts = {}) {
 
   // Footer
   y = H - 30;
-  body += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="monospace" font-size="9" fill="#334155">resumerpg.app/gh/${esc((character._github?.login || "").toLowerCase())}</text>`;
+  const siteHost = (process.env.PUBLIC_SITE_URL || "https://resumerpg.app").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  body += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="monospace" font-size="9" fill="#334155">${esc(siteHost)}/gh/${esc((character._github?.login || "").toLowerCase())}</text>`;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>

@@ -1,4 +1,5 @@
 import type { CharacterSheet } from "@/types/character";
+import { getPublicSiteOrigin } from "@/lib/siteUrl";
 
 export function encodeShareData(c: CharacterSheet): string {
   const compact = {
@@ -20,7 +21,7 @@ export function encodeShareData(c: CharacterSheet): string {
 }
 
 export function getQRUrl(c: CharacterSheet): string {
-  const shareUrl = "https://resumerpg.app/card#" + encodeShareData(c);
+  const shareUrl = `${getPublicSiteOrigin()}/card#${encodeShareData(c)}`;
   return (
     "https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=0c0c1d&color=e2e8f0&data=" +
     encodeURIComponent(shareUrl)

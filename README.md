@@ -222,28 +222,13 @@ No server AI key? Resume generation falls back to "bring your own key" in the UI
 
 ## Production Deployment (Railway)
 
-### 1. Set up Supabase (free tier)
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full checklist (Supabase migrations **001 → 002 → 003**, env vars, health checks).
 
-1. Create a project at [supabase.com](https://supabase.com)
-2. Go to SQL Editor, paste and run `supabase/migrations/001_create_cards.sql`
-3. Copy your project URL and service role key from Settings → API
+### Short version
 
-### 2. Deploy to Railway
-
-1. Push this repo to GitHub
-2. Create a new project on [railway.app](https://railway.app) → "Deploy from GitHub repo"
-3. Railway auto-detects `railway.json` — it will run `npm ci && npm run build`, then `node server/index.js`
-4. Add these environment variables in Railway:
-
-| Variable | Value |
-|----------|-------|
-| `ANTHROPIC_API_KEY` | `sk-ant-...` |
-| `SUPABASE_URL` | `https://yourproject.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` |
-| `ALLOWED_ORIGINS` | `https://resumerpg.app,https://www.resumerpg.app` |
-| `NODE_ENV` | `production` |
-
-5. Railway assigns a URL automatically. Point your domain's DNS to it.
+1. **Supabase** — Run `001_create_cards.sql`, then `002_github_cards.sql`, then `003_increment_rpc.sql` in the SQL Editor.
+2. **Railway** — Deploy from GitHub; build runs `npm ci && npm run build`, start runs `node server/index.js` ([railway.json](./railway.json)).
+3. **Env vars** — At minimum: `NODE_ENV=production`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS` (your real `https://` origins). Recommended: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, and **`VITE_PUBLIC_SITE_URL`** (set before build, e.g. `https://yourdomain.com`) so QR codes and README badge copy use the correct domain.
 
 ## Scripts
 
@@ -260,12 +245,15 @@ No server AI key? Resume generation falls back to "bring your own key" in the UI
 |----------|----------|---------|-------------|
 | `ANTHROPIC_API_KEY` | For real generation | — | Claude API key |
 | `SUPABASE_URL` | For persistent links | — | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | For persistent links | — | Supabase service role key |
+| `SUPABASE_SERVICE_ROLE_KEY` | For persistent links | — | Supabase service role key (server only) |
 | `ALLOWED_ORIGINS` | In production | — | Comma-separated allowed CORS origins |
 | `NODE_ENV` | In production | — | Set to `production` |
 | `PORT` | No | `8787` | Server port (Railway sets this automatically) |
+| `VITE_PUBLIC_SITE_URL` | Recommended (prod build) | — | Canonical `https://` site URL for QR + README snippets (no trailing slash) |
+| `PUBLIC_SITE_URL` | Optional | `https://resumerpg.app` | Server PNG card footer (`/gh/*/card.png`) |
+| `GITHUB_TOKEN` | Optional | — | GitHub PAT for higher API rate limits on `/api/gh` |
 | `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Model to use |
-| `RATE_LIMIT_GENERATE` | No | `10` | Max generations per IP per hour |
+| `RATE_LIMIT_GENERATE` | No | `10` | Max generations + GitHub card API calls per IP per hour |
 | `RATE_LIMIT_SHARE` | No | `30` | Max shares per IP per hour |
 
 ## Tech Stack

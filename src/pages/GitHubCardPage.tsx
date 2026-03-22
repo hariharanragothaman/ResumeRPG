@@ -4,6 +4,7 @@ import { CardFront } from "@/components/CardFront";
 import { CardBack } from "@/components/CardBack";
 import { HolographicCard } from "@/components/HolographicCard";
 import { STAT_NAMES } from "@/lib/config";
+import { getPublicSiteOrigin } from "@/lib/siteUrl";
 import { exportTradingCard } from "@/lib/export";
 import { shareCharacter } from "@/lib/share";
 import type { CharacterSheet } from "@/types/character";
@@ -99,10 +100,12 @@ export function GitHubCardPage() {
 
   if (!result) return null;
   const { character, percentiles, meta } = result;
+  const publicOrigin = getPublicSiteOrigin();
+  const readmeBadgeMd = `[![ResumeRPG](${publicOrigin}/gh/${username}/badge.svg?style=full)](${publicOrigin}/gh/${username})`;
 
   const handleExport = async () => {
     setExporting(true);
-    try { await exportTradingCard(character); } catch {}
+    try { await exportTradingCard(character); } catch { /* best-effort export */ }
     setExporting(false);
   };
 
@@ -199,10 +202,9 @@ export function GitHubCardPage() {
           border: "1px solid rgba(255,255,255,0.06)", fontFamily: "'DM Sans'", fontSize: 11,
           color: "#94a3b8", wordBreak: "break-all", lineHeight: 1.6, cursor: "pointer"
         }} onClick={() => {
-          const md = `[![ResumeRPG](https://resumerpg.app/gh/${username}/badge.svg?style=full)](https://resumerpg.app/gh/${username})`;
-          navigator.clipboard?.writeText(md).then(() => alert("Copied!"));
+          navigator.clipboard?.writeText(readmeBadgeMd).then(() => alert("Copied!"));
         }}>
-          {`[![ResumeRPG](https://resumerpg.app/gh/${username}/badge.svg?style=full)](https://resumerpg.app/gh/${username})`}
+          {readmeBadgeMd}
           <span style={{ display: "block", marginTop: 4, fontSize: 10, color: "#475569" }}>Click to copy</span>
         </div>
       </div>

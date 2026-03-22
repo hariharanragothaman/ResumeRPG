@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CardFront } from "@/components/CardFront";
 import { STAT_NAMES } from "@/lib/config";
+import { getPublicSiteOrigin } from "@/lib/siteUrl";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Legend } from "recharts";
 import type { CharacterSheet } from "@/types/character";
 import { CLASS_CONFIG } from "@/lib/config";
@@ -163,7 +164,8 @@ export function GitHubComparePage() {
       {/* Share this duel */}
       <div style={{ textAlign: "center", marginTop: 20 }}>
         <button onClick={() => {
-          const text = `⚔️ @${username} (Power ${lTotal}) vs @${other} (Power ${rTotal}) — who wins?\n\nSee the duel: https://resumerpg.app/gh/${username}/vs/${other}`;
+          const base = getPublicSiteOrigin();
+          const text = `⚔️ @${username} (Power ${lTotal}) vs @${other} (Power ${rTotal}) — who wins?\n\nSee the duel: ${base}/gh/${username}/vs/${other}`;
           if (navigator.share) navigator.share({ title: "ResumeRPG Duel", text });
           else navigator.clipboard?.writeText(text).then(() => alert("Copied!"));
         }} style={{

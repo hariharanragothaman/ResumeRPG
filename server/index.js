@@ -259,7 +259,15 @@ async function loadGitHubCard(username) {
 // ─── Routes ─────────────────────────────────────────────────────────
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", hasApiKey: !!anthropic, hasSupabase: !!supabase, uptime: Math.floor(process.uptime()) });
+  res.json({
+    status: "ok",
+    hasApiKey: !!anthropic,
+    hasSupabase: !!supabase,
+    githubCards: supabase ? "database" : "memory",
+    githubToken: !!process.env.GITHUB_TOKEN,
+    node: process.version,
+    uptime: Math.floor(process.uptime()),
+  });
 });
 
 app.get("/api/status", (_req, res) => {
