@@ -34,7 +34,8 @@ Without Supabase, the API falls back to **in-memory** storage. That is fine for 
 
 Railway should match [railway.json](railway.json):
 
-- Build: `npm ci && npm run build`  
+- Install: Nixpacks runs `npm ci`  
+- Build: `npm run build` only (see [railway.json](./railway.json); avoid duplicating `npm ci` — it conflicts with Nixpacks’ Docker cache mount)  
 - Start: `NODE_ENV=production node server/index.js`  
 
 The production server serves the Vite `dist/` folder and handles `/api/*`, `/gh/*/badge.svg`, and `/gh/*/card.png`.

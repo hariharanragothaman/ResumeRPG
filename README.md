@@ -227,7 +227,7 @@ See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full checklist (Supabase migrat
 ### Short version
 
 1. **Supabase** — Run `001_create_cards.sql`, then `002_github_cards.sql`, then `003_increment_rpc.sql` in the SQL Editor.
-2. **Railway** — Deploy from GitHub; build runs `npm ci && npm run build`, start runs `node server/index.js` ([railway.json](./railway.json)).
+2. **Railway** — Deploy from GitHub; Nixpacks runs `npm ci`, then `npm run build`; start runs `node server/index.js` ([railway.json](./railway.json)).
 3. **Env vars** — At minimum: `NODE_ENV=production`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS` (your real `https://` origins). Recommended: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, and **`VITE_PUBLIC_SITE_URL`** (set before build, e.g. `https://yourdomain.com`) so QR codes and README badge copy use the correct domain.
 
 ## Scripts
