@@ -11,6 +11,14 @@ export function SharePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (character) {
+      document.title = `${character.name} — Lv.${character.level} ${character.class} | ResumeRPG`;
+    } else {
+      document.title = "Shared Card | ResumeRPG";
+    }
+  }, [character]);
+
+  useEffect(() => {
     if (!id) return;
     let cancelled = false;
     void fetch(`/api/share/${encodeURIComponent(id)}`)

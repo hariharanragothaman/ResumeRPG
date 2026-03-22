@@ -5,7 +5,7 @@ import express from "express";
 import multer from "multer";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
@@ -347,7 +347,8 @@ app.get("/api/gh-stats", async (req, res) => {
   res.json(stats);
 });
 
-app.get("/gh/:username/badge.svg", rateLimit("badge", 120), async (req, res) => {
+// Badge & card image — new short routes + legacy /gh/ redirects
+async function badgeHandler(req, res) {
   try {
     const result = await loadGitHubCard(req.params.username);
     const style = req.query.style || "flat";
@@ -362,9 +363,9 @@ app.get("/gh/:username/badge.svg", rateLimit("badge", 120), async (req, res) => 
     res.set("Content-Type", "image/svg+xml");
     res.status(e.status || 404).send(fallback);
   }
-});
+}
 
-app.get("/gh/:username/card.png", rateLimit("cardimg", 60), async (req, res) => {
+async function cardImageHandler(req, res) {
   try {
     const [result, stats] = await Promise.all([
       loadGitHubCard(req.params.username),
@@ -380,16 +381,102 @@ app.get("/gh/:username/card.png", rateLimit("cardimg", 60), async (req, res) => 
     console.error("Card image error:", e.message);
     res.status(e.status || 500).send("Failed to generate card image");
   }
+}
+
+// New canonical routes
+app.get("/:username/badge.svg", rateLimit("badge", 120), badgeHandler);
+app.get("/:username/card.png", rateLimit("cardimg", 60), cardImageHandler);
+
+// Legacy /gh/ routes — 301 redirect for badge/card, keep working for existing README embeds
+app.get("/gh/:username/badge.svg", (req, res) => {
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(301, `/${req.params.username}/badge.svg${qs}`);
 });
+app.get("/gh/:username/card.png", (req, res) => {
+  res.redirect(301, `/${req.params.username}/card.png`);
+});
+
+// ─── OG meta helper ─────────────────────────────────────────────────
+
+const RESERVED_PATHS = new Set(["privacy", "share", "api", "assets", "favicon.svg"]);
+
+function looksLikeUsername(segment) {
+  return /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(segment);
+}
+
+async function lookupCardMeta(username) {
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from("github_cards")
+    .select("character")
+    .eq("username", username.toLowerCase())
+    .single();
+  return data?.character || null;
+}
+
+function buildOgTags(character, username, publicOrigin) {
+  const title = character
+    ? `@${username} — Lv.${character.level} ${character.class} | ResumeRPG`
+    : `@${username} | ResumeRPG`;
+  const description = character?.tagline
+    ? `"${character.tagline}" — ${character.rarity} ${character.class}`
+    : `See @${username}'s developer trading card on ResumeRPG`;
+  const image = `${publicOrigin}/${encodeURIComponent(username)}/card.png`;
+  const url = `${publicOrigin}/${encodeURIComponent(username)}`;
+
+  return [
+    `<meta property="og:title" content="${esc(title)}" />`,
+    `<meta property="og:description" content="${esc(description)}" />`,
+    `<meta property="og:image" content="${image}" />`,
+    `<meta property="og:url" content="${url}" />`,
+    `<meta property="og:type" content="profile" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+    `<meta name="twitter:title" content="${esc(title)}" />`,
+    `<meta name="twitter:description" content="${esc(description)}" />`,
+    `<meta name="twitter:image" content="${image}" />`,
+  ].join("\n    ");
+}
+
+function esc(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const DEFAULT_OG = [
+  `<meta property="og:title" content="ResumeRPG — Your career, leveled up" />`,
+  `<meta property="og:description" content="Transform your resume or GitHub profile into a legendary RPG character card" />`,
+  `<meta property="og:type" content="website" />`,
+  `<meta name="twitter:card" content="summary_large_image" />`,
+].join("\n    ");
 
 // ─── Static files (production) ──────────────────────────────────────
 const distPath = resolve(__dirname, "..", "dist");
 if (IS_PROD && existsSync(distPath)) {
+  const rawHtml = readFileSync(resolve(distPath, "index.html"), "utf-8");
+  // Strip build-time default OG tags so the server can inject dynamic ones
+  const OG_TAG_RE = /<meta\s+(property="og:|name="twitter:)[^>]*>\s*/g;
+  const indexHtmlShell = rawHtml.replace(OG_TAG_RE, "");
+
   app.use(express.static(distPath, { maxAge: "7d", index: false }));
-  app.get("*", (req, res, next) => {
+  app.get("*", async (req, res, next) => {
     if (req.path.startsWith("/api/")) return next();
     if (req.path.endsWith(".svg") || req.path.endsWith(".png")) return next();
-    res.sendFile(resolve(distPath, "index.html"));
+
+    const publicOrigin = process.env.VITE_PUBLIC_SITE_URL?.replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+    const firstSegment = req.path.split("/").filter(Boolean)[0] || "";
+
+    let ogMeta = DEFAULT_OG;
+    if (firstSegment && !RESERVED_PATHS.has(firstSegment) && looksLikeUsername(firstSegment)) {
+      try {
+        const character = await lookupCardMeta(firstSegment);
+        ogMeta = buildOgTags(character, firstSegment, publicOrigin);
+      } catch {
+        ogMeta = buildOgTags(null, firstSegment, publicOrigin);
+      }
+    }
+
+    const html = indexHtmlShell.replace("</head>", `    ${ogMeta}\n  </head>`);
+    res.set("Content-Type", "text/html");
+    res.send(html);
   });
 }
 

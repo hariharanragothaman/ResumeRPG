@@ -24,9 +24,9 @@ export function App() {
         <Route path="/" element={<HomePage theme={theme} onThemeChange={changeTheme} />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/share/:id" element={<SharePage />} />
-        <Route path="/gh/:username" element={<GitHubCardPage />} />
-        <Route path="/gh/:username/vs" element={<GitHubComparePage />} />
-        <Route path="/gh/:username/vs/:other" element={<GitHubComparePage />} />
+        <Route path="/:username" element={<GitHubCardPage />} />
+        <Route path="/:username/vs" element={<GitHubComparePage />} />
+        <Route path="/:username/vs/:other" element={<GitHubComparePage />} />
       </Routes>
     </Layout>
   );
