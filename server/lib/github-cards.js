@@ -232,18 +232,17 @@ async function upsertCard(supabase, username, character, githubData) {
 }
 
 async function touchCard(supabase, username) {
+  const uname = username.toLowerCase();
   await supabase
     .from("github_cards")
-    .update({
-      last_accessed_at: new Date().toISOString(),
-      access_count: supabase.rpc ? undefined : undefined, // increment handled below
-    })
-    .eq("username", username.toLowerCase());
+    .update({ last_accessed_at: new Date().toISOString() })
+    .eq("username", uname);
 
-  // Increment access_count
-  await supabase.rpc("increment_access_count", { uname: username.toLowerCase() }).catch(() => {
-    // fallback if RPC doesn't exist yet — non-critical
-  });
+  // increment_access_count RPC (migration 003) — errors are non-fatal
+  const { error } = await supabase.rpc("increment_access_count", { uname });
+  if (error) {
+    // RPC missing, RLS, or transient failure — last_accessed_at still updated above
+  }
 }
 
 async function recalcPercentiles(supabase) {
