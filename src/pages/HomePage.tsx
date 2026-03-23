@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from "recharts";
 import { CardFront } from "@/components/CardFront";
 import { CardBack } from "@/components/CardBack";
 import { HolographicCard } from "@/components/HolographicCard";
@@ -19,35 +20,7 @@ import {
 import type { Provider } from "@/lib/api";
 import type { CharacterSheet } from "@/types/character";
 
-const EXAMPLE_CARDS: (CharacterSheet & { _github?: { login: string } })[] = [
-  {
-    name: "Linus Torvalds", title: "Creator of Linux & Git", class: "Embedded Ranger",
-    level: 99, rarity: "Legendary", xp_current: 9999, xp_max: 10000,
-    stats: { IMPACT: 20, CRAFT: 20, RANGE: 16, TENURE: 20, VISION: 20, INFLUENCE: 20 },
-    skills: ["C", "Git", "Linux Kernel", "OS Design", "Open Source"],
-    inventory: [], quests_completed: [], boss_battles: [],
-    guild: "Linux Foundation", backstory: "", tagline: "Talk is cheap. Show me the code.",
-    _github: { login: "torvalds" },
-  },
-  {
-    name: "Dan Abramov", title: "React Core Team", class: "Frontend Sorcerer",
-    level: 78, rarity: "Epic", xp_current: 8200, xp_max: 10000,
-    stats: { IMPACT: 18, CRAFT: 19, RANGE: 14, TENURE: 12, VISION: 18, INFLUENCE: 19 },
-    skills: ["React", "Redux", "JavaScript", "TypeScript", "DX", "Teaching"],
-    inventory: [], quests_completed: [], boss_battles: [],
-    guild: "Meta", backstory: "", tagline: "UI is a function of state",
-    _github: { login: "gaearon" },
-  },
-  {
-    name: "Sindre Sorhus", title: "Open Source Machine", class: "Fullstack Warlock",
-    level: 88, rarity: "Legendary", xp_current: 9400, xp_max: 10000,
-    stats: { IMPACT: 17, CRAFT: 18, RANGE: 20, TENURE: 18, VISION: 16, INFLUENCE: 18 },
-    skills: ["Node.js", "npm", "Swift", "TypeScript", "CLI", "Open Source"],
-    inventory: [], quests_completed: [], boss_battles: [],
-    guild: "Freelance", backstory: "", tagline: "1000+ npm packages and counting",
-    _github: { login: "sindresorhus" },
-  },
-];
+const HERO_USERNAMES = ["torvalds", "gaearon", "sindresorhus"];
 
 type Tab = "generate" | "gallery" | "compare";
 type Step = "input" | "loading" | "result";
@@ -72,6 +45,8 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
   const [inputMode, setInputMode] = useState<InputMode>("resume");
   const [ghUser, setGhUser] = useState("");
   const [cohortCount, setCohortCount] = useState<number | null>(null);
+  const [rarityDist, setRarityDist] = useState<{ name: string; count: number; color: string }[]>([]);
+  const [heroCards, setHeroCards] = useState<(CharacterSheet & { _github?: { login: string; avatar: string } })[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [serverHasKey, setServerHasKey] = useState<boolean | null>(null);
@@ -87,9 +62,34 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
   }, []);
 
   useEffect(() => { void checkServerHasKey().then(setServerHasKey); }, []);
+
+  useEffect(() => {
+    Promise.all(
+      HERO_USERNAMES.map((u) =>
+        fetch(`/api/gh/${encodeURIComponent(u)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => d?.character ?? null)
+          .catch(() => null)
+      )
+    ).then((cards) => {
+      const valid = cards.filter(Boolean);
+      if (valid.length > 0) setHeroCards(valid);
+    });
+  }, []);
   useEffect(() => {
     fetch("/api/gh-stats").then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.total_cards) setCohortCount(d.total_cards); })
+      .then((d) => {
+        if (!d) return;
+        if (d.total_cards) setCohortCount(d.total_cards);
+        const dist = [
+          { name: "Common", count: d.common_count || 0, color: "#9ca3af" },
+          { name: "Uncommon", count: d.uncommon_count || 0, color: "#22c55e" },
+          { name: "Rare", count: d.rare_count || 0, color: "#3b82f6" },
+          { name: "Epic", count: d.epic_count || 0, color: "#a855f7" },
+          { name: "Legendary", count: d.legendary_count || 0, color: "#f59e0b" },
+        ];
+        if (dist.some(d => d.count > 0)) setRarityDist(dist);
+      })
       .catch(() => {});
   }, []);
   const needsClientKey = serverHasKey === false;
@@ -213,7 +213,7 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
   );
 
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 16px 60px" }}>
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 60px" }}>
       {/* Logo */}
       <div style={{ textAlign: "center", marginBottom: 14, animation: "slideUp 0.5s ease-out" }}>
         <h1 style={{ fontFamily: T.headingFont, fontSize: 18, color: T.text, margin: 0, letterSpacing: 2, lineHeight: 1.5 }}>
@@ -239,44 +239,46 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
         ))}
       </div>
 
-      {/* Hero: Example cards */}
-      <div style={{ marginBottom: 20, animation: "slideUp 0.6s ease-out" }}>
-        <div style={{
-          display: "flex", gap: 10, overflowX: "auto", padding: "4px 0 10px",
-          scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch",
-        }}>
-          {EXAMPLE_CARDS.map((card) => (
-            <Link
-              key={card._github?.login}
-              to={`/${card._github?.login}`}
-              style={{
-                flex: "0 0 160px", scrollSnapAlign: "start", textDecoration: "none",
-                borderRadius: 12, overflow: "hidden",
-                border: "1px solid " + T.surfaceBorder,
-                transition: "transform 0.15s, box-shadow 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "translateY(-4px)";
-                e.currentTarget.style.boxShadow = "0 8px 24px rgba(168,85,247,0.2)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "";
-                e.currentTarget.style.boxShadow = "";
-              }}
-            >
-              <CardFront data={card} theme={theme} compact />
-            </Link>
-          ))}
-        </div>
-        {cohortCount != null && cohortCount > 0 && (
-          <p style={{
-            textAlign: "center", fontFamily: T.bodyFont, fontSize: 11,
-            color: T.textMuted, margin: "4px 0 0",
+      {/* Hero: Example cards — full-size carousel (live data) */}
+      {heroCards.length > 0 && (
+        <div style={{ marginBottom: 24, animation: "slideUp 0.6s ease-out" }}>
+          <div style={{
+            display: "flex", gap: 16, overflowX: "auto", padding: "4px 0 14px",
+            scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch",
           }}>
-            Join {cohortCount.toLocaleString()}+ developers who've been indexed
-          </p>
-        )}
-      </div>
+            {heroCards.map((card) => (
+              <Link
+                key={card._github?.login}
+                to={`/${card._github?.login}`}
+                style={{
+                  flex: "0 0 min(85vw, 380px)", scrollSnapAlign: "center", textDecoration: "none",
+                  borderRadius: 16, overflow: "hidden",
+                  border: "1px solid " + T.surfaceBorder,
+                  transition: "transform 0.2s, box-shadow 0.2s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-6px) scale(1.02)";
+                  e.currentTarget.style.boxShadow = "0 12px 32px rgba(168,85,247,0.25)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "";
+                  e.currentTarget.style.boxShadow = "";
+                }}
+              >
+                <CardFront data={card} theme={theme} />
+              </Link>
+            ))}
+          </div>
+          {cohortCount != null && cohortCount > 0 && (
+            <p style={{
+              textAlign: "center", fontFamily: T.bodyFont, fontSize: 12,
+              color: T.textMuted, margin: "6px 0 0",
+            }}>
+              Join {cohortCount.toLocaleString()}+ developers who've been indexed
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: "flex", borderBottom: "1px solid " + T.surfaceBorder, marginBottom: 16 }}>
@@ -439,6 +441,60 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
 
       {/* Compare */}
       {tab === "compare" && <CompareView characters={savedChars} theme={theme} />}
+
+      {/* Rating Distribution */}
+      {rarityDist.length > 0 && (
+        <div style={{
+          marginTop: 32, marginBottom: 8, animation: "slideUp 0.7s ease-out",
+          background: T.surface, borderRadius: 16, border: "1px solid " + T.surfaceBorder,
+          padding: "24px 20px 16px",
+        }}>
+          <div style={{
+            fontFamily: T.labelFont, fontSize: 11, color: T.textDim,
+            letterSpacing: 2, fontWeight: 700, marginBottom: 16, textAlign: "center",
+          }}>
+            RARITY DISTRIBUTION
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={rarityDist} barCategoryGap="20%">
+              <XAxis
+                dataKey="name"
+                tick={{ fill: T.textDim, fontFamily: T.labelFont, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis hide />
+              <Tooltip
+                cursor={{ fill: "rgba(168,85,247,0.08)" }}
+                contentStyle={{
+                  background: T.light ? "#fff" : "#1a1a2e",
+                  border: "1px solid " + T.surfaceBorder,
+                  borderRadius: 8, fontFamily: T.bodyFont, fontSize: 14,
+                }}
+                labelStyle={{ color: T.text, fontWeight: 600, fontSize: 14 }}
+                formatter={(value) => [Number(value).toLocaleString() + " devs", ""]}
+              />
+              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                {rarityDist.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{
+            display: "flex", justifyContent: "center", gap: 16, marginTop: 12, flexWrap: "wrap",
+          }}>
+            {rarityDist.map((r) => (
+              <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: r.color }} />
+                <span style={{ fontFamily: T.bodyFont, fontSize: 13, color: T.textMuted }}>
+                  {r.name} ({((r.count / (cohortCount || 1)) * 100).toFixed(1)}%)
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

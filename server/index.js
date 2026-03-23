@@ -320,7 +320,7 @@ app.get("/api/share/:id", async (req, res) => {
 
 // ─── GitHub Card Routes ─────────────────────────────────────────────
 
-app.get("/api/gh/:username", rateLimit("ghcard", RATE_MAX_GENERATE), async (req, res) => {
+app.get("/api/gh/:username", rateLimit("ghcard", 120), async (req, res) => {
   try {
     const result = await loadGitHubCard(req.params.username);
     res.json(result);
@@ -329,7 +329,7 @@ app.get("/api/gh/:username", rateLimit("ghcard", RATE_MAX_GENERATE), async (req,
   }
 });
 
-app.get("/api/gh/:username/vs/:other", rateLimit("ghcard", RATE_MAX_GENERATE), async (req, res) => {
+app.get("/api/gh/:username/vs/:other", rateLimit("ghduel", 60), async (req, res) => {
   try {
     const [left, right] = await Promise.all([
       loadGitHubCard(req.params.username),

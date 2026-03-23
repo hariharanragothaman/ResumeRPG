@@ -116,10 +116,11 @@ export function GitHubComparePage() {
   const { left, right } = result;
   const lc = CLASS_CONFIG[left.character.class]?.color || "#a855f7";
   const rc = CLASS_CONFIG[right.character.class]?.color || "#3b82f6";
-  const wpCalc = (st: typeof left.character.stats) =>
+  const wpCalc = (st: typeof left.character.stats) => Math.floor(
     ((st.IMPACT || 0) + (st.INFLUENCE || 0) + (st.VISION || 0)) * 2
     + ((st.CRAFT || 0) + (st.RANGE || 0)) * 1.5
-    + (st.TENURE || 0);
+    + (st.TENURE || 0)
+  );
   const lTotal = wpCalc(left.character.stats);
   const rTotal = wpCalc(right.character.stats);
 
