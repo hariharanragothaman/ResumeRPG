@@ -280,60 +280,6 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
         </div>
       )}
 
-      {/* Rating Distribution */}
-      {rarityDist.length > 0 && (
-        <div style={{
-          marginBottom: 24, animation: "slideUp 0.7s ease-out",
-          background: T.surface, borderRadius: 16, border: "1px solid " + T.surfaceBorder,
-          padding: "20px 16px 12px",
-        }}>
-          <div style={{
-            fontFamily: T.labelFont, fontSize: 8, color: T.textDim,
-            letterSpacing: 2, fontWeight: 700, marginBottom: 14, textAlign: "center",
-          }}>
-            RARITY DISTRIBUTION
-          </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={rarityDist} barCategoryGap="20%">
-              <XAxis
-                dataKey="name"
-                tick={{ fill: T.textDim, fontFamily: T.labelFont, fontSize: 8 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis hide />
-              <Tooltip
-                cursor={{ fill: "rgba(168,85,247,0.08)" }}
-                contentStyle={{
-                  background: T.light ? "#fff" : "#1a1a2e",
-                  border: "1px solid " + T.surfaceBorder,
-                  borderRadius: 8, fontFamily: T.bodyFont, fontSize: 12,
-                }}
-                labelStyle={{ color: T.text, fontWeight: 600 }}
-                formatter={(value) => [Number(value).toLocaleString() + " devs", ""]}
-              />
-              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                {rarityDist.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-          <div style={{
-            display: "flex", justifyContent: "center", gap: 14, marginTop: 8, flexWrap: "wrap",
-          }}>
-            {rarityDist.map((r) => (
-              <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: r.color }} />
-                <span style={{ fontFamily: T.bodyFont, fontSize: 10, color: T.textMuted }}>
-                  {r.name} ({((r.count / (cohortCount || 1)) * 100).toFixed(1)}%)
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Tabs */}
       <div style={{ display: "flex", borderBottom: "1px solid " + T.surfaceBorder, marginBottom: 16 }}>
         {tabBtn("generate", "GENERATE", "🎲")}
@@ -495,6 +441,60 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
 
       {/* Compare */}
       {tab === "compare" && <CompareView characters={savedChars} theme={theme} />}
+
+      {/* Rating Distribution */}
+      {rarityDist.length > 0 && (
+        <div style={{
+          marginTop: 32, marginBottom: 8, animation: "slideUp 0.7s ease-out",
+          background: T.surface, borderRadius: 16, border: "1px solid " + T.surfaceBorder,
+          padding: "24px 20px 16px",
+        }}>
+          <div style={{
+            fontFamily: T.labelFont, fontSize: 11, color: T.textDim,
+            letterSpacing: 2, fontWeight: 700, marginBottom: 16, textAlign: "center",
+          }}>
+            RARITY DISTRIBUTION
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={rarityDist} barCategoryGap="20%">
+              <XAxis
+                dataKey="name"
+                tick={{ fill: T.textDim, fontFamily: T.labelFont, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis hide />
+              <Tooltip
+                cursor={{ fill: "rgba(168,85,247,0.08)" }}
+                contentStyle={{
+                  background: T.light ? "#fff" : "#1a1a2e",
+                  border: "1px solid " + T.surfaceBorder,
+                  borderRadius: 8, fontFamily: T.bodyFont, fontSize: 14,
+                }}
+                labelStyle={{ color: T.text, fontWeight: 600, fontSize: 14 }}
+                formatter={(value) => [Number(value).toLocaleString() + " devs", ""]}
+              />
+              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                {rarityDist.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{
+            display: "flex", justifyContent: "center", gap: 16, marginTop: 12, flexWrap: "wrap",
+          }}>
+            {rarityDist.map((r) => (
+              <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: r.color }} />
+                <span style={{ fontFamily: T.bodyFont, fontSize: 13, color: T.textMuted }}>
+                  {r.name} ({((r.count / (cohortCount || 1)) * 100).toFixed(1)}%)
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
