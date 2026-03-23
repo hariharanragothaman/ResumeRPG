@@ -195,16 +195,42 @@ const CLASS_MAP = {
   Elixir: "Backend Paladin", Haskell: "ML Alchemist",
 };
 
+const TOP_ORGS = new Set([
+  "google", "microsoft", "meta", "facebook", "apple", "amazon", "netflix",
+  "linux", "torvalds", "kubernetes", "apache", "mozilla", "rust-lang",
+  "golang", "python", "nodejs", "vercel", "supabase", "docker",
+  "elastic", "hashicorp", "redhat", "canonical", "debian", "ubuntu",
+  "openai", "anthropic", "huggingface", "tensorflow", "pytorch",
+  "flutter", "angular", "vuejs", "sveltejs", "reactjs", "facebook",
+  "stripe", "cloudflare", "github", "gitlabhq", "atlassian",
+  "shopify", "airbnb", "uber", "twitter", "x",
+  "nasa", "cern", "mit", "stanford",
+]);
+
+const STAR_THRESHOLD = 5;
+
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
+function weightedPower(stats) {
+  return (stats.IMPACT + stats.INFLUENCE + stats.VISION) * 2
+       + (stats.CRAFT + stats.RANGE) * 1.5
+       + stats.TENURE;
+}
+
 function calculateStats(gh) {
+  const sLangs = gh.starredLanguages || gh.languages;
+  const topStars = Math.max(...(gh.topRepos || []).map(r => r.stars || 0), 0);
+  const starMagnitude = topStars > 10000 ? 5 : topStars > 1000 ? 3 : topStars > 100 ? 1 : 0;
+  const followerBreadth = gh.followers > 10000 ? 3 : gh.followers > 1000 ? 1 : 0;
+  const orgBonus = gh.isTopOrgMember ? 1 : 0;
+
   return {
-    IMPACT: clamp(Math.floor(Math.log2(gh.totalStars + 1) * 1.5) + Math.floor(gh.totalForks / 10) + (gh.publicRepos > 50 ? 3 : gh.publicRepos > 20 ? 2 : 1), 1, 20),
-    CRAFT: clamp(Math.min(gh.languages.length * 2, 10) + Math.floor(Math.log2(gh.publicRepos + 1) * 1.5) + (gh.recentlyActive > 10 ? 3 : gh.recentlyActive > 5 ? 2 : 0), 1, 20),
-    RANGE: clamp(Math.min(gh.languages.length, 12) + (gh.topRepos.some(r => r.lang !== gh.topLanguage) ? 3 : 0) + Math.floor(gh.publicRepos / 15), 1, 20),
+    IMPACT: clamp(Math.floor(Math.log2(gh.totalStars + 1) * 1.5) + Math.floor(gh.totalForks / 10) + (gh.publicRepos > 50 ? 3 : gh.publicRepos > 20 ? 2 : 1) + orgBonus * 3, 1, 20),
+    CRAFT: clamp(Math.min(sLangs.length * 2, 10) + Math.floor(Math.log2(gh.publicRepos + 1) * 1.5) + (gh.recentlyActive > 10 ? 3 : gh.recentlyActive > 5 ? 2 : 0) + starMagnitude, 1, 20),
+    RANGE: clamp(Math.min(sLangs.length, 12) + (gh.topRepos.some(r => r.lang !== gh.topLanguage) ? 3 : 0) + Math.min(Math.floor(gh.publicRepos / 15), 4) + followerBreadth, 1, 20),
     TENURE: clamp(gh.yearsActive * 2 + (gh.publicRepos > 100 ? 2 : 0), 1, 20),
     VISION: clamp(Math.floor(Math.log2(gh.totalStars + 1) * 2) + (gh.topRepos.some(r => r.stars > 100) ? 4 : gh.topRepos.some(r => r.stars > 20) ? 2 : 0) + (gh.bio.length > 50 ? 1 : 0), 1, 20),
-    INFLUENCE: clamp(Math.floor(Math.log2(gh.followers + 1) * 2.5) + (gh.followers > gh.following * 2 ? 2 : 0) + (gh.company ? 1 : 0), 1, 20),
+    INFLUENCE: clamp(Math.floor(Math.log2(gh.followers + 1) * 2.5) + (gh.followers > gh.following * 2 ? 2 : 0) + (gh.company ? 1 : 0) + orgBonus * 2, 1, 20),
   };
 }
 
@@ -212,8 +238,9 @@ function generateCharacter(gh) {
   const stats = calculateStats(gh);
   const charClass = CLASS_MAP[gh.topLanguage] || "Fullstack Warlock";
   const statTotal = Object.values(stats).reduce((a, b) => a + b, 0);
+  const wp = weightedPower(stats);
   const level = clamp(Math.floor(gh.yearsActive * 4 + statTotal * 0.5 + Math.log2(gh.totalStars + 1) * 2), 1, 99);
-  const rarity = statTotal >= 95 ? "Legendary" : statTotal >= 75 ? "Epic" : statTotal >= 55 ? "Rare" : statTotal >= 40 ? "Uncommon" : "Common";
+  const rarity = wp >= 155 ? "Legendary" : wp >= 125 ? "Epic" : wp >= 95 ? "Rare" : wp >= 65 ? "Uncommon" : "Common";
 
   const inventory = gh.topRepos.map(r => ({
     name: r.name + (r.stars > 0 ? " ★" + r.stars : ""),
@@ -244,6 +271,7 @@ function generateCharacter(gh) {
       backstory: gh.bio || `A ${gh.topLanguage} wielder who has forged ${gh.publicRepos} repositories over ${gh.yearsActive} years.`,
       tagline: `Level ${level} ${gh.topLanguage} Wielder`,
       _github: { login: gh.login, avatar: gh.avatarUrl },
+      _weightedPower: wp,
     },
     dbRow: {
       username: gh.login.toLowerCase(),
@@ -252,7 +280,7 @@ function generateCharacter(gh) {
       avatar_url: gh.avatarUrl,
       stat_impact: stats.IMPACT, stat_craft: stats.CRAFT, stat_range: stats.RANGE,
       stat_tenure: stats.TENURE, stat_vision: stats.VISION, stat_influence: stats.INFLUENCE,
-      stat_total: statTotal,
+      stat_total: wp,
       level, rarity, class: charClass,
       refreshed_at: new Date().toISOString(),
       last_accessed_at: new Date().toISOString(),
@@ -263,27 +291,41 @@ function generateCharacter(gh) {
 
 // ─── Fetch a single user's full profile ─────────────────────────────
 async function fetchAndGenerate(username) {
-  // Fetch profile
-  const user = await ghFetch(`https://api.github.com/users/${encodeURIComponent(username)}`);
+  const encoded = encodeURIComponent(username);
+
+  const user = await ghFetch(`https://api.github.com/users/${encoded}`);
   if (!user || !user.login) return null;
 
-  // Fetch repos
   let repos = [];
   try {
-    repos = await ghFetch(`https://api.github.com/users/${encodeURIComponent(username)}/repos?per_page=100&sort=pushed`);
+    repos = await ghFetch(`https://api.github.com/users/${encoded}/repos?per_page=100&sort=pushed`);
     if (!Array.isArray(repos)) repos = [];
   } catch { repos = []; }
 
-  // Build profile object (same shape as server/lib/github-cards.js)
-  const languages = {};
+  let orgs = [];
+  try {
+    const orgsJson = await ghFetch(`https://api.github.com/users/${encoded}/orgs`);
+    orgs = Array.isArray(orgsJson) ? orgsJson.map(o => o.login?.toLowerCase()).filter(Boolean) : [];
+  } catch { orgs = []; }
+  const isTopOrgMember = orgs.some(o => TOP_ORGS.has(o));
+
+  const allLanguages = {};
+  const starredLanguages = {};
   let totalStars = 0, totalForks = 0;
   for (const r of repos) {
     if (r.fork) continue;
-    if (r.language) languages[r.language] = (languages[r.language] || 0) + 1;
-    totalStars += r.stargazers_count || 0;
+    const stars = r.stargazers_count || 0;
+    if (r.language) {
+      allLanguages[r.language] = (allLanguages[r.language] || 0) + 1;
+      if (stars >= STAR_THRESHOLD) {
+        starredLanguages[r.language] = (starredLanguages[r.language] || 0) + 1;
+      }
+    }
+    totalStars += stars;
     totalForks += r.forks_count || 0;
   }
-  const langList = Object.entries(languages).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  const langList = Object.entries(allLanguages).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  const starredLangList = Object.entries(starredLanguages).sort((a, b) => b[1] - a[1]).map(e => e[0]);
   const ownRepos = repos.filter(r => !r.fork);
   const oldestRepo = ownRepos.reduce((o, r) => (!o || new Date(r.created_at) < new Date(o.created_at) ? r : o), null);
   const yearsActive = oldestRepo ? Math.max(1, Math.floor((Date.now() - new Date(oldestRepo.created_at).getTime()) / (365.25 * 86400000))) : 1;
@@ -295,8 +337,10 @@ async function fetchAndGenerate(username) {
     company: user.company || "", location: user.location || "",
     followers: user.followers || 0, following: user.following || 0,
     publicRepos: user.public_repos || 0, totalStars, totalForks,
-    languages: langList, topLanguage: langList[0] || "Code",
+    languages: langList, starredLanguages: starredLangList,
+    topLanguage: langList[0] || "Code",
     yearsActive, recentlyActive, avatarUrl: user.avatar_url,
+    orgs, isTopOrgMember,
     topRepos: ownRepos.sort((a, b) => (b.stargazers_count || 0) - (a.stargazers_count || 0))
       .slice(0, 6).map(r => ({ name: r.name, stars: r.stargazers_count, lang: r.language, description: r.description })),
   };

@@ -81,7 +81,11 @@ async function generateCardImage(character, percentiles, opts = {}) {
   const rarityColor = RARITY_COLORS[character.rarity] || "#9ca3af";
   const icon = CLASS_ICONS[character.class] || "⚔️";
   const stats = character.stats || {};
-  const total = Object.values(stats).reduce((a, b) => a + (b || 0), 0);
+  const total = (
+    ((stats.IMPACT || 0) + (stats.INFLUENCE || 0) + (stats.VISION || 0)) * 2
+    + ((stats.CRAFT || 0) + (stats.RANGE || 0)) * 1.5
+    + (stats.TENURE || 0)
+  );
   const cohortSize = opts.cohortSize || null;
   const pctLabel = percentiles?.overall != null
     ? `Top ${Math.max(1, Math.round(100 - percentiles.overall))}%${cohortSize ? ` of ${cohortSize.toLocaleString()}` : ""}`
@@ -147,7 +151,7 @@ async function generateCardImage(character, percentiles, opts = {}) {
   y = statResult.endY + 4;
 
   // Power total
-  body += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="monospace" font-size="10" fill="#475569">Total Power: ${total}/120</text>`;
+  body += `<text x="${W / 2}" y="${y}" text-anchor="middle" font-family="monospace" font-size="10" fill="#475569">Total Power: ${total}/200</text>`;
   y += 18;
 
   // Divider

@@ -25,14 +25,30 @@ const CLASS_MAP = {
 
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
+const TOP_ORGS = new Set([
+  "google", "microsoft", "meta", "facebook", "apple", "amazon", "netflix",
+  "linux", "torvalds", "kubernetes", "apache", "mozilla", "rust-lang",
+  "golang", "python", "nodejs", "vercel", "supabase", "docker",
+  "elastic", "hashicorp", "redhat", "canonical", "debian", "ubuntu",
+  "openai", "anthropic", "huggingface", "tensorflow", "pytorch",
+  "flutter", "angular", "vuejs", "sveltejs", "reactjs", "facebook",
+  "stripe", "cloudflare", "github", "gitlabhq", "atlassian",
+  "shopify", "airbnb", "uber", "twitter", "x",
+  "nasa", "cern", "mit", "stanford",
+]);
+
+const STAR_THRESHOLD = 5;
+
 // ── GitHub API fetch ────────────────────────────────────────────────
 async function fetchGitHubProfile(username) {
   const headers = { Accept: "application/vnd.github.v3+json", "User-Agent": "ResumeRPG/1.0" };
   if (GITHUB_TOKEN) headers.Authorization = `Bearer ${GITHUB_TOKEN}`;
 
-  const [userRes, reposRes] = await Promise.all([
-    fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, { headers }),
-    fetch(`https://api.github.com/users/${encodeURIComponent(username)}/repos?per_page=100&sort=pushed`, { headers }),
+  const encoded = encodeURIComponent(username);
+  const [userRes, reposRes, orgsRes] = await Promise.all([
+    fetch(`https://api.github.com/users/${encoded}`, { headers }),
+    fetch(`https://api.github.com/users/${encoded}/repos?per_page=100&sort=pushed`, { headers }),
+    fetch(`https://api.github.com/users/${encoded}/orgs`, { headers }),
   ]);
 
   if (userRes.status === 404) return null;
@@ -45,16 +61,28 @@ async function fetchGitHubProfile(username) {
     console.warn(`[github-cards] repos request ${reposRes.status} for ${username} — continuing with empty repo list`);
   }
 
-  const languages = {};
+  const orgsJson = await orgsRes.json().catch(() => []);
+  const orgs = Array.isArray(orgsJson) ? orgsJson.map(o => o.login?.toLowerCase()).filter(Boolean) : [];
+  const isTopOrgMember = orgs.some(o => TOP_ORGS.has(o));
+
+  const allLanguages = {};
+  const starredLanguages = {};
   let totalStars = 0, totalForks = 0;
   for (const r of repos) {
-    if (r.fork) continue; // skip forks for more accurate language/star counts
-    if (r.language) languages[r.language] = (languages[r.language] || 0) + 1;
-    totalStars += r.stargazers_count || 0;
+    if (r.fork) continue;
+    const stars = r.stargazers_count || 0;
+    if (r.language) {
+      allLanguages[r.language] = (allLanguages[r.language] || 0) + 1;
+      if (stars >= STAR_THRESHOLD) {
+        starredLanguages[r.language] = (starredLanguages[r.language] || 0) + 1;
+      }
+    }
+    totalStars += stars;
     totalForks += r.forks_count || 0;
   }
 
-  const langList = Object.entries(languages).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  const langList = Object.entries(allLanguages).sort((a, b) => b[1] - a[1]).map(e => e[0]);
+  const starredLangList = Object.entries(starredLanguages).sort((a, b) => b[1] - a[1]).map(e => e[0]);
   const ownRepos = repos.filter(r => !r.fork);
 
   const oldestRepo = ownRepos.reduce((o, r) =>
@@ -63,7 +91,6 @@ async function fetchGitHubProfile(username) {
     ? Math.max(1, Math.floor((Date.now() - new Date(oldestRepo.created_at).getTime()) / (365.25 * 86400000)))
     : 1;
 
-  // Contribution proxy: recent push activity (repos pushed in last 90 days)
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000);
   const recentlyActive = ownRepos.filter(r => new Date(r.pushed_at) > ninetyDaysAgo).length;
 
@@ -79,10 +106,13 @@ async function fetchGitHubProfile(username) {
     totalStars,
     totalForks,
     languages: langList,
+    starredLanguages: starredLangList,
     topLanguage: langList[0] || "Code",
     yearsActive,
     recentlyActive,
     avatarUrl: user.avatar_url,
+    orgs,
+    isTopOrgMember,
     topRepos: ownRepos
       .sort((a, b) => (b.stargazers_count || 0) - (a.stargazers_count || 0))
       .slice(0, 6)
@@ -92,21 +122,30 @@ async function fetchGitHubProfile(username) {
 
 // ── Stats calculation (deterministic, no AI needed) ─────────────────
 function calculateStats(gh) {
+  const sLangs = gh.starredLanguages || gh.languages;
+  const topStars = Math.max(...(gh.topRepos || []).map(r => r.stars || 0), 0);
+  const starMagnitude = topStars > 10000 ? 5 : topStars > 1000 ? 3 : topStars > 100 ? 1 : 0;
+  const followerBreadth = gh.followers > 10000 ? 3 : gh.followers > 1000 ? 1 : 0;
+  const orgBonus = gh.isTopOrgMember ? 1 : 0;
+
   return {
     IMPACT: clamp(
       Math.floor(Math.log2(gh.totalStars + 1) * 1.5) +
       Math.floor(gh.totalForks / 10) +
-      (gh.publicRepos > 50 ? 3 : gh.publicRepos > 20 ? 2 : 1),
+      (gh.publicRepos > 50 ? 3 : gh.publicRepos > 20 ? 2 : 1) +
+      orgBonus * 3,
       1, 20),
     CRAFT: clamp(
-      Math.min(gh.languages.length * 2, 10) +
+      Math.min(sLangs.length * 2, 10) +
       Math.floor(Math.log2(gh.publicRepos + 1) * 1.5) +
-      (gh.recentlyActive > 10 ? 3 : gh.recentlyActive > 5 ? 2 : 0),
+      (gh.recentlyActive > 10 ? 3 : gh.recentlyActive > 5 ? 2 : 0) +
+      starMagnitude,
       1, 20),
     RANGE: clamp(
-      Math.min(gh.languages.length, 12) +
+      Math.min(sLangs.length, 12) +
       (gh.topRepos.some(r => r.lang !== gh.topLanguage) ? 3 : 0) +
-      Math.floor(gh.publicRepos / 15),
+      Math.min(Math.floor(gh.publicRepos / 15), 4) +
+      followerBreadth,
       1, 20),
     TENURE: clamp(
       gh.yearsActive * 2 +
@@ -120,7 +159,8 @@ function calculateStats(gh) {
     INFLUENCE: clamp(
       Math.floor(Math.log2(gh.followers + 1) * 2.5) +
       (gh.followers > gh.following * 2 ? 2 : 0) +
-      (gh.company ? 1 : 0),
+      (gh.company ? 1 : 0) +
+      orgBonus * 2,
       1, 20),
   };
 }
@@ -137,12 +177,18 @@ function determineLevel(gh, stats) {
   );
 }
 
+function weightedPower(stats) {
+  return (stats.IMPACT + stats.INFLUENCE + stats.VISION) * 2
+       + (stats.CRAFT + stats.RANGE) * 1.5
+       + stats.TENURE;
+}
+
 function determineRarity(stats) {
-  const total = Object.values(stats).reduce((a, b) => a + b, 0);
-  if (total >= 95) return "Legendary";
-  if (total >= 75) return "Epic";
-  if (total >= 55) return "Rare";
-  if (total >= 40) return "Uncommon";
+  const wp = weightedPower(stats);
+  if (wp >= 155) return "Legendary";
+  if (wp >= 125) return "Epic";
+  if (wp >= 95) return "Rare";
+  if (wp >= 65) return "Uncommon";
   return "Common";
 }
 
@@ -151,7 +197,7 @@ function generateCharacter(gh) {
   const charClass = determineClass(gh);
   const level = determineLevel(gh, stats);
   const rarity = determineRarity(stats);
-  const statTotal = Object.values(stats).reduce((a, b) => a + b, 0);
+  const wp = weightedPower(stats);
 
   const inventory = gh.topRepos.map(r => ({
     name: r.name + (r.stars > 0 ? " ★" + r.stars : ""),
@@ -188,7 +234,7 @@ function generateCharacter(gh) {
     backstory: gh.bio || `A ${gh.topLanguage} wielder who has forged ${gh.publicRepos} repositories over ${gh.yearsActive} years.`,
     tagline: `Level ${level} ${gh.topLanguage} Wielder`,
     _github: { login: gh.login, avatar: gh.avatarUrl },
-    _statTotal: statTotal,
+    _weightedPower: wp,
   };
 }
 
@@ -216,7 +262,7 @@ async function upsertCard(supabase, username, character, githubData) {
     stat_tenure: stats.TENURE,
     stat_vision: stats.VISION,
     stat_influence: stats.INFLUENCE,
-    stat_total: Object.values(stats).reduce((a, b) => a + b, 0),
+    stat_total: weightedPower(stats),
     level: character.level,
     rarity: character.rarity,
     class: character.class,
@@ -413,4 +459,5 @@ export {
   startPeriodicRecalc,
   fetchGitHubProfile,
   generateCharacter,
+  weightedPower,
 };

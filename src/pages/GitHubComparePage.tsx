@@ -116,8 +116,12 @@ export function GitHubComparePage() {
   const { left, right } = result;
   const lc = CLASS_CONFIG[left.character.class]?.color || "#a855f7";
   const rc = CLASS_CONFIG[right.character.class]?.color || "#3b82f6";
-  const lTotal = STAT_NAMES.reduce((a, s) => a + (left.character.stats[s as keyof typeof left.character.stats] || 0), 0);
-  const rTotal = STAT_NAMES.reduce((a, s) => a + (right.character.stats[s as keyof typeof right.character.stats] || 0), 0);
+  const wpCalc = (st: typeof left.character.stats) =>
+    ((st.IMPACT || 0) + (st.INFLUENCE || 0) + (st.VISION || 0)) * 2
+    + ((st.CRAFT || 0) + (st.RANGE || 0)) * 1.5
+    + (st.TENURE || 0);
+  const lTotal = wpCalc(left.character.stats);
+  const rTotal = wpCalc(right.character.stats);
 
   const radarData = STAT_NAMES.map((s) => ({
     stat: s,
