@@ -212,9 +212,11 @@ const STAR_THRESHOLD = 5;
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
 function weightedPower(stats) {
-  return (stats.IMPACT + stats.INFLUENCE + stats.VISION) * 2
-       + (stats.CRAFT + stats.RANGE) * 1.5
-       + stats.TENURE;
+  return Math.floor(
+    (stats.IMPACT + stats.INFLUENCE + stats.VISION) * 2
+    + (stats.CRAFT + stats.RANGE) * 1.5
+    + stats.TENURE
+  );
 }
 
 function calculateStats(gh) {

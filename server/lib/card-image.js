@@ -81,7 +81,7 @@ async function generateCardImage(character, percentiles, opts = {}) {
   const rarityColor = RARITY_COLORS[character.rarity] || "#9ca3af";
   const icon = CLASS_ICONS[character.class] || "⚔️";
   const stats = character.stats || {};
-  const total = (
+  const total = Math.floor(
     ((stats.IMPACT || 0) + (stats.INFLUENCE || 0) + (stats.VISION || 0)) * 2
     + ((stats.CRAFT || 0) + (stats.RANGE || 0)) * 1.5
     + (stats.TENURE || 0)

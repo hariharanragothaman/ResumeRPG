@@ -178,9 +178,11 @@ function determineLevel(gh, stats) {
 }
 
 function weightedPower(stats) {
-  return (stats.IMPACT + stats.INFLUENCE + stats.VISION) * 2
-       + (stats.CRAFT + stats.RANGE) * 1.5
-       + stats.TENURE;
+  return Math.floor(
+    (stats.IMPACT + stats.INFLUENCE + stats.VISION) * 2
+    + (stats.CRAFT + stats.RANGE) * 1.5
+    + stats.TENURE
+  );
 }
 
 function determineRarity(stats) {
