@@ -128,6 +128,9 @@ function calculateStats(gh) {
   const followerBreadth = gh.followers > 10000 ? 3 : gh.followers > 1000 ? 1 : 0;
   const orgBonus = gh.isTopOrgMember ? 1 : 0;
 
+  // Magnitude bonus for RANGE: extreme reach/impact compensates for low language count
+  const reachBonus = gh.totalStars > 100000 ? 5 : gh.totalStars > 10000 ? 3 : gh.totalStars > 1000 ? 1 : 0;
+
   return {
     IMPACT: clamp(
       Math.floor(Math.log2(gh.totalStars + 1) * 1.5) +
@@ -145,7 +148,8 @@ function calculateStats(gh) {
       Math.min(sLangs.length, 12) +
       (gh.topRepos.some(r => r.lang !== gh.topLanguage) ? 3 : 0) +
       Math.min(Math.floor(gh.publicRepos / 15), 4) +
-      followerBreadth,
+      followerBreadth +
+      reachBonus,
       1, 20),
     TENURE: clamp(
       gh.yearsActive * 2 +

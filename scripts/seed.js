@@ -11,6 +11,7 @@
  *   node scripts/seed.js --resume            # skip users already in DB
  *   node scripts/seed.js --dry-run           # fetch but don't write to DB
  *   node scripts/seed.js --recalc            # only recalculate percentile scores (no seeding)
+ *   node scripts/seed.js --balanced          # 30% top devs + 70% common devs for realistic distribution
  *
  * How it works:
  *   1. Uses GitHub Search API to discover top users by followers (multiple range queries)
@@ -44,6 +45,7 @@ const RESUME = args.includes("--resume");
 const DRY_RUN = args.includes("--dry-run");
 const COMMON = args.includes("--common");
 const RECALC_ONLY = args.includes("--recalc");
+const BALANCED = args.includes("--balanced");
 const BATCH_SIZE = 25; // upsert batch size
 const DELAY_BETWEEN_USERS_MS = 1500; // ~2400 users/hr, well within 5K/hr limit
 const DELAY_BETWEEN_SEARCHES_MS = 2200; // stay under 30 search req/min
@@ -365,11 +367,12 @@ function calculateStats(gh) {
   const starMagnitude = topStars > 10000 ? 5 : topStars > 1000 ? 3 : topStars > 100 ? 1 : 0;
   const followerBreadth = gh.followers > 10000 ? 3 : gh.followers > 1000 ? 1 : 0;
   const orgBonus = gh.isTopOrgMember ? 1 : 0;
+  const reachBonus = gh.totalStars > 100000 ? 5 : gh.totalStars > 10000 ? 3 : gh.totalStars > 1000 ? 1 : 0;
 
   return {
     IMPACT: clamp(Math.floor(Math.log2(gh.totalStars + 1) * 1.5) + Math.floor(gh.totalForks / 10) + (gh.publicRepos > 50 ? 3 : gh.publicRepos > 20 ? 2 : 1) + orgBonus * 3, 1, 20),
     CRAFT: clamp(Math.min(sLangs.length * 2, 10) + Math.floor(Math.log2(gh.publicRepos + 1) * 1.5) + (gh.recentlyActive > 10 ? 3 : gh.recentlyActive > 5 ? 2 : 0) + starMagnitude, 1, 20),
-    RANGE: clamp(Math.min(sLangs.length, 12) + (gh.topRepos.some(r => r.lang !== gh.topLanguage) ? 3 : 0) + Math.min(Math.floor(gh.publicRepos / 15), 4) + followerBreadth, 1, 20),
+    RANGE: clamp(Math.min(sLangs.length, 12) + (gh.topRepos.some(r => r.lang !== gh.topLanguage) ? 3 : 0) + Math.min(Math.floor(gh.publicRepos / 15), 4) + followerBreadth + reachBonus, 1, 20),
     TENURE: clamp(gh.yearsActive * 2 + (gh.publicRepos > 100 ? 2 : 0), 1, 20),
     VISION: clamp(Math.floor(Math.log2(gh.totalStars + 1) * 2) + (gh.topRepos.some(r => r.stars > 100) ? 4 : gh.topRepos.some(r => r.stars > 20) ? 2 : 0) + (gh.bio.length > 50 ? 1 : 0), 1, 20),
     INFLUENCE: clamp(Math.floor(Math.log2(gh.followers + 1) * 2.5) + (gh.followers > gh.following * 2 ? 2 : 0) + (gh.company ? 1 : 0) + orgBonus * 2, 1, 20),
@@ -524,8 +527,9 @@ async function main() {
   console.log("╔════════════════════════════════════════╗");
   console.log("║       ResumeRPG Database Seeder        ║");
   console.log("╚════════════════════════════════════════╝");
+  const mode = BALANCED ? "balanced (30% top + 70% common)" : COMMON ? "common users (low followers)" : "top developers (high followers)";
   console.log(`  Target:    ${TARGET.toLocaleString()} users`);
-  console.log(`  Mode:      ${COMMON ? "common users (low followers)" : "top developers (high followers)"}`);
+  console.log(`  Mode:      ${mode}`);
   console.log(`  Resume:    ${RESUME}`);
   console.log(`  Dry run:   ${DRY_RUN}`);
   console.log(`  Est. time: ~${Math.ceil(TARGET / 2400)} hours`);
@@ -544,9 +548,23 @@ async function main() {
   console.log(`  Already in DB: ${existingCount || 0}\n`);
 
   // Step 1: Discover usernames
-  const allUsernames = COMMON
-    ? await discoverCommonUsernames(TARGET + completedSet.size)
-    : await discoverUsernames(TARGET + completedSet.size);
+  let allUsernames;
+  if (BALANCED) {
+    const topTarget = Math.ceil(TARGET * 0.3);
+    const commonTarget = TARGET - topTarget;
+    console.log(`  Balanced mode: discovering ${topTarget} top + ${commonTarget} common users\n`);
+    const [topUsers, commonUsers] = await Promise.all([
+      discoverUsernames(topTarget + completedSet.size),
+      discoverCommonUsernames(commonTarget + completedSet.size),
+    ]);
+    const combined = new Set([...topUsers, ...commonUsers]);
+    allUsernames = [...combined];
+    console.log(`\n  Combined: ${allUsernames.length} unique usernames (${topUsers.length} top + ${commonUsers.length} common, ${allUsernames.length - topUsers.length - commonUsers.length + combined.size} overlap removed)\n`);
+  } else if (COMMON) {
+    allUsernames = await discoverCommonUsernames(TARGET + completedSet.size);
+  } else {
+    allUsernames = await discoverUsernames(TARGET + completedSet.size);
+  }
 
   // Filter out already-completed users
   const toProcess = RESUME
