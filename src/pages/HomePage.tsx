@@ -13,11 +13,12 @@ import { shareCharacter } from "@/lib/share";
 import { loadIndex, saveCharacter } from "@/lib/storage";
 import type { SavedEntry } from "@/lib/storage";
 import {
-  checkServerHasKey,
+  checkServerStatus,
   parseResumeClientSide,
   parseResumeText,
+  parseResumeTextWithKey,
 } from "@/lib/api";
-import type { Provider } from "@/lib/api";
+import type { Provider, ServerStatus } from "@/lib/api";
 import type { CharacterSheet } from "@/types/character";
 
 const HERO_USERNAMES = ["torvalds", "gaearon", "sindresorhus"];
@@ -49,7 +50,10 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
   const [heroCards, setHeroCards] = useState<(CharacterSheet & { _github?: { login: string; avatar: string } })[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [serverHasKey, setServerHasKey] = useState<boolean | null>(null);
+  const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
+  const [useOwnKey, setUseOwnKey] = useState(
+    () => localStorage.getItem("resumerpg:useOwnKey") === "true",
+  );
   const [provider, setProvider] = useState<Provider>(
     () => (localStorage.getItem("resumerpg:provider") as Provider) || "anthropic",
   );
@@ -61,7 +65,7 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
     document.title = "ResumeRPG — Your career, leveled up";
   }, []);
 
-  useEffect(() => { void checkServerHasKey().then(setServerHasKey); }, []);
+  useEffect(() => { void checkServerStatus().then(setServerStatus); }, []);
 
   useEffect(() => {
     Promise.all(
@@ -92,12 +96,20 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
       })
       .catch(() => {});
   }, []);
-  const needsClientKey = serverHasKey === false;
+  const serverKeyAvailable = serverStatus?.serverKeyAvailable ?? false;
+  const freeUsesLeft = serverStatus?.freeUsesRemaining ?? 0;
+  const freeUsesMax = serverStatus?.freeUsesMax ?? 0;
+  const needsClientKey = useOwnKey || !serverKeyAvailable;
 
   const switchProvider = useCallback((p: Provider) => {
     setProvider(p);
     localStorage.setItem("resumerpg:provider", p);
     setClientApiKey(sessionStorage.getItem(`resumerpg:apiKey:${p}`) || "");
+  }, []);
+
+  const toggleUseOwnKey = useCallback((val: boolean) => {
+    setUseOwnKey(val);
+    localStorage.setItem("resumerpg:useOwnKey", String(val));
   }, []);
 
   const refreshSaved = useCallback(() => setSavedChars(loadIndex()), []);
@@ -138,7 +150,11 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
       if (needsClientKey) {
         if (!clientApiKey.trim()) throw new Error("Enter your API key above.");
         sessionStorage.setItem(`resumerpg:apiKey:${provider}`, clientApiKey.trim());
-        c = await parseResumeClientSide(resumeText, clientApiKey.trim(), provider);
+        if (provider === "anthropic") {
+          c = await parseResumeTextWithKey(resumeText, clientApiKey.trim());
+        } else {
+          c = await parseResumeClientSide(resumeText, clientApiKey.trim(), provider);
+        }
       } else {
         c = await parseResumeText(resumeText);
       }
@@ -146,9 +162,16 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
       saveCharacter(c);
       refreshSaved();
       setStep("result");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Generation failed.");
+      void checkServerStatus().then(setServerStatus);
+    } catch (err: unknown) {
+      const errObj = err instanceof Error ? err : new Error("Generation failed.");
+      if (errObj.message.includes("requiresUserKey") || errObj.message.includes("free generations")) {
+        setUseOwnKey(true);
+        localStorage.setItem("resumerpg:useOwnKey", "true");
+      }
+      setError(errObj.message);
       setStep("input");
+      void checkServerStatus().then(setServerStatus);
     }
   }, [resumeText, needsClientKey, clientApiKey, provider, refreshSaved]);
 
@@ -298,31 +321,89 @@ export function HomePage({ theme, onThemeChange }: { theme: ThemeName; onThemeCh
 
           {inputMode === "resume" ? (
             <>
-              {/* API key prompt */}
-              {needsClientKey && (
+              {/* Free uses banner + BYOK toggle */}
+              {serverStatus && (
                 <div style={{ background: T.light ? "rgba(0,0,0,0.03)" : "rgba(168,85,247,0.06)", border: "1px solid " + (T.light ? "rgba(0,0,0,0.08)" : "rgba(168,85,247,0.2)"), borderRadius: 12, padding: 16, marginBottom: 12 }}>
-                  <label style={{ fontFamily: T.labelFont, fontSize: 8, color: accent, letterSpacing: 2, display: "block", marginBottom: 10, fontWeight: 700 }}>🔑 AI PROVIDER</label>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                    {(["anthropic", "openai"] as const).map((p) => (
-                      <button key={p} type="button" onClick={() => switchProvider(p)} style={{
-                        flex: 1, padding: "8px 12px", borderRadius: 8,
-                        border: provider === p ? "1px solid " + accent + "80" : "1px solid " + T.surfaceBorder,
-                        background: provider === p ? accent + "22" : "transparent",
-                        color: provider === p ? T.text : T.textDim,
-                        fontFamily: T.labelFont, fontSize: 7, cursor: "pointer",
-                      }}>
-                        {p === "anthropic" ? "🟣 Anthropic" : "🟢 OpenAI"}
-                      </button>
-                    ))}
-                  </div>
-                  <p style={{ fontFamily: T.bodyFont, fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
-                    {provider === "anthropic" ? "Uses Claude Opus 4.6." : "Uses GPT-4.1."}{" "}
-                    Key stays in your browser — never sent to our server.
-                  </p>
-                  <input type="password" value={clientApiKey} onChange={(e) => setClientApiKey(e.target.value)}
-                    placeholder={provider === "anthropic" ? "sk-ant-..." : "sk-..."}
-                    style={{ width: "100%", background: T.light ? "white" : "rgba(10,10,26,0.8)", color: T.text, border: "1px solid " + T.surfaceBorder, borderRadius: 8, padding: "10px 12px", fontFamily: T.bodyFont, fontSize: 13 }}
-                  />
+                  {/* Free uses indicator */}
+                  {serverKeyAvailable && !useOwnKey && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontFamily: T.labelFont, fontSize: 8, color: accent, letterSpacing: 2, fontWeight: 700 }}>
+                          FREE GENERATIONS
+                        </span>
+                        <span style={{ fontFamily: T.bodyFont, fontSize: 12, color: freeUsesLeft > 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
+                          {freeUsesLeft} / {freeUsesMax} remaining today
+                        </span>
+                      </div>
+                      <div style={{ height: 4, background: T.surfaceBorder, borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", borderRadius: 2,
+                          background: freeUsesLeft > 2 ? "#22c55e" : freeUsesLeft > 0 ? "#f59e0b" : "#ef4444",
+                          width: `${(freeUsesLeft / freeUsesMax) * 100}%`,
+                          transition: "width 0.3s",
+                        }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Toggle: use own key */}
+                  <button
+                    type="button"
+                    onClick={() => toggleUseOwnKey(!useOwnKey)}
+                    style={{
+                      width: "100%", padding: "8px 12px", borderRadius: 8,
+                      border: "1px solid " + (useOwnKey ? accent + "80" : T.surfaceBorder),
+                      background: useOwnKey ? accent + "18" : "transparent",
+                      color: useOwnKey ? accent : T.textDim,
+                      fontFamily: T.labelFont, fontSize: 7, cursor: "pointer", fontWeight: 700,
+                      letterSpacing: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      marginBottom: useOwnKey ? 12 : 0,
+                    }}
+                  >
+                    {useOwnKey ? "🔑 USING YOUR OWN KEY" : "🔑 USE YOUR OWN API KEY (UNLIMITED)"}
+                  </button>
+
+                  {/* BYOK input */}
+                  {useOwnKey && (
+                    <>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                        {(["anthropic", "openai"] as const).map((p) => (
+                          <button key={p} type="button" onClick={() => switchProvider(p)} style={{
+                            flex: 1, padding: "8px 12px", borderRadius: 8,
+                            border: provider === p ? "1px solid " + accent + "80" : "1px solid " + T.surfaceBorder,
+                            background: provider === p ? accent + "22" : "transparent",
+                            color: provider === p ? T.text : T.textDim,
+                            fontFamily: T.labelFont, fontSize: 7, cursor: "pointer",
+                          }}>
+                            {p === "anthropic" ? "🟣 Anthropic" : "🟢 OpenAI"}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={{ fontFamily: T.bodyFont, fontSize: 12, color: T.textMuted, margin: "0 0 8px" }}>
+                        {provider === "anthropic"
+                          ? "Uses Claude Sonnet 4.6 via our server. Your key is sent securely and never stored."
+                          : "Uses GPT-4.1. Key stays in your browser — calls OpenAI directly."}
+                      </p>
+                      <input type="password" value={clientApiKey} onChange={(e) => setClientApiKey(e.target.value)}
+                        placeholder={provider === "anthropic" ? "sk-ant-..." : "sk-..."}
+                        style={{ width: "100%", background: T.light ? "white" : "rgba(10,10,26,0.8)", color: T.text, border: "1px solid " + T.surfaceBorder, borderRadius: 8, padding: "10px 12px", fontFamily: T.bodyFont, fontSize: 13, boxSizing: "border-box" }}
+                      />
+                      {serverKeyAvailable && (
+                        <button
+                          type="button"
+                          onClick={() => toggleUseOwnKey(false)}
+                          style={{
+                            marginTop: 8, padding: "6px 12px", borderRadius: 6,
+                            border: "1px solid " + T.surfaceBorder, background: "transparent",
+                            color: T.textDim, fontFamily: T.bodyFont, fontSize: 11,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ← Back to free generations ({freeUsesLeft} left)
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
 

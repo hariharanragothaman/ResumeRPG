@@ -74,6 +74,67 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// ─── Daily spending cap for server-side API key ─────────────────────
+const DAILY_TOKEN_CAP = Number(process.env.DAILY_TOKEN_CAP || 500_000);
+const DAILY_REQUEST_CAP = Number(process.env.DAILY_REQUEST_CAP || 200);
+const PER_IP_DAILY_CAP = Number(process.env.PER_IP_DAILY_CAP || 5);
+
+const usageTracker = {
+  date: new Date().toISOString().slice(0, 10),
+  totalTokens: 0,
+  totalRequests: 0,
+  perIp: new Map(),
+
+  reset() {
+    const today = new Date().toISOString().slice(0, 10);
+    if (this.date !== today) {
+      console.log(`[usage] Day rolled over. Previous day (${this.date}): ${this.totalRequests} requests, ${this.totalTokens} tokens`);
+      this.date = today;
+      this.totalTokens = 0;
+      this.totalRequests = 0;
+      this.perIp.clear();
+    }
+  },
+
+  record(ip, inputTokens, outputTokens) {
+    this.reset();
+    const tokens = (inputTokens || 0) + (outputTokens || 0);
+    this.totalTokens += tokens;
+    this.totalRequests += 1;
+    const ipCount = (this.perIp.get(ip) || 0) + 1;
+    this.perIp.set(ip, ipCount);
+    console.log(`[usage] ip=${ip} req=#${this.totalRequests} tokens_now=${tokens} tokens_today=${this.totalTokens} ip_daily=${ipCount}`);
+    return { tokens, ipCount };
+  },
+
+  canUseServerKey(ip) {
+    this.reset();
+    if (this.totalTokens >= DAILY_TOKEN_CAP) {
+      return { allowed: false, reason: "Daily token budget exhausted. Please use your own API key.", code: "token_cap" };
+    }
+    if (this.totalRequests >= DAILY_REQUEST_CAP) {
+      return { allowed: false, reason: "Daily request limit reached. Please use your own API key.", code: "request_cap" };
+    }
+    const ipCount = this.perIp.get(ip) || 0;
+    if (ipCount >= PER_IP_DAILY_CAP) {
+      return { allowed: false, reason: `You've used ${PER_IP_DAILY_CAP} free generations today. Please use your own API key for more.`, code: "ip_daily_cap" };
+    }
+    return { allowed: true };
+  },
+
+  stats() {
+    this.reset();
+    return {
+      date: this.date,
+      totalTokens: this.totalTokens,
+      totalRequests: this.totalRequests,
+      tokenCapPct: Math.round((this.totalTokens / DAILY_TOKEN_CAP) * 100),
+      requestCapPct: Math.round((this.totalRequests / DAILY_REQUEST_CAP) * 100),
+      uniqueIps: this.perIp.size,
+    };
+  },
+};
+
 // ─── Supabase ───────────────────────────────────────────────────────
 let supabase = null;
 if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -201,20 +262,25 @@ function normalizeCharacter(raw) {
   };
 }
 
-async function resumeTextToCharacter(text) {
+async function resumeTextToCharacter(text, { client = anthropic, ip = "unknown" } = {}) {
   const trimmed = String(text || "").trim();
   if (trimmed.length < 40) {
     const err = new Error("Resume text too short to parse meaningfully.");
     err.status = 400;
     throw err;
   }
-  if (!anthropic) {
+  if (!client) {
     return { ...DEMO_CHARACTER, tagline: "Demo mode — add ANTHROPIC_API_KEY" };
   }
-  const msg = await anthropic.messages.create({
+  const msg = await client.messages.create({
     model: MODEL, max_tokens: 2000, system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: `Here is my resume:\n\n${trimmed.slice(0, 48000)}` }],
   });
+
+  if (client === anthropic && msg.usage) {
+    usageTracker.record(ip, msg.usage.input_tokens, msg.usage.output_tokens);
+  }
+
   const block = msg.content.find((b) => b.type === "text");
   if (!block || block.type !== "text") throw new Error("No text from model");
   let json;
@@ -271,13 +337,58 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/status", (_req, res) => {
-  res.json({ hasApiKey: !!anthropic });
+  const ip = _req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || _req.ip || "unknown";
+  const capCheck = anthropic ? usageTracker.canUseServerKey(ip) : { allowed: false, code: "no_key" };
+  res.json({
+    hasApiKey: !!anthropic,
+    serverKeyAvailable: !!anthropic && capCheck.allowed,
+    freeUsesRemaining: anthropic ? Math.max(0, PER_IP_DAILY_CAP - (usageTracker.perIp.get(ip) || 0)) : 0,
+    freeUsesMax: PER_IP_DAILY_CAP,
+    capReason: capCheck.allowed ? null : (capCheck.reason || null),
+  });
 });
+
+app.get("/api/usage", (_req, res) => {
+  res.json(usageTracker.stats());
+});
+
+function resolveClient(req) {
+  const userKey = req.headers["x-anthropic-key"] || req.body?.apiKey;
+  if (userKey && typeof userKey === "string" && userKey.startsWith("sk-ant-")) {
+    return { client: new Anthropic({ apiKey: userKey }), isUserKey: true };
+  }
+  return { client: anthropic, isUserKey: false };
+}
 
 app.post("/api/parse-resume-text", rateLimit("generate", RATE_MAX_GENERATE), async (req, res) => {
   try {
-    const character = await resumeTextToCharacter(req.body?.text);
-    res.json(character);
+    const ip = getClientIp(req);
+    const { client, isUserKey } = resolveClient(req);
+
+    if (!isUserKey && client === anthropic) {
+      const capCheck = usageTracker.canUseServerKey(ip);
+      if (!capCheck.allowed) {
+        return res.status(429).json({
+          error: capCheck.reason,
+          code: capCheck.code,
+          requiresUserKey: true,
+        });
+      }
+    }
+
+    if (!client) {
+      return res.status(400).json({
+        error: "No API key available. Please provide your own Anthropic API key.",
+        requiresUserKey: true,
+      });
+    }
+
+    const text = req.body?.text;
+    const body = { ...(req.body || {}) };
+    delete body.apiKey;
+
+    const character = await resumeTextToCharacter(text, { client, ip });
+    res.json({ ...character, _usedServerKey: !isUserKey });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message || "Server error" });
   }
@@ -286,9 +397,36 @@ app.post("/api/parse-resume-text", rateLimit("generate", RATE_MAX_GENERATE), asy
 app.post("/api/parse-resume", rateLimit("generate", RATE_MAX_GENERATE), upload.single("resume"), async (req, res) => {
   try {
     if (!req.file?.buffer) return res.status(400).json({ error: "Missing PDF file (field: resume)" });
+    const ip = getClientIp(req);
+    const userKey = req.headers["x-anthropic-key"];
+    let client = anthropic;
+    let isUserKey = false;
+    if (userKey && typeof userKey === "string" && userKey.startsWith("sk-ant-")) {
+      client = new Anthropic({ apiKey: userKey });
+      isUserKey = true;
+    }
+
+    if (!isUserKey && client === anthropic) {
+      const capCheck = usageTracker.canUseServerKey(ip);
+      if (!capCheck.allowed) {
+        return res.status(429).json({
+          error: capCheck.reason,
+          code: capCheck.code,
+          requiresUserKey: true,
+        });
+      }
+    }
+
+    if (!client) {
+      return res.status(400).json({
+        error: "No API key available. Please provide your own Anthropic API key.",
+        requiresUserKey: true,
+      });
+    }
+
     const data = await pdfParse(req.file.buffer);
-    const character = await resumeTextToCharacter(data.text || "");
-    res.json(character);
+    const character = await resumeTextToCharacter(data.text || "", { client, ip });
+    res.json({ ...character, _usedServerKey: !isUserKey });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message || "Server error" });
   }
@@ -662,7 +800,9 @@ app.listen(PORT, () => {
   console.log(`  GH cards: ${supabase ? "Supabase + percentiles" : "in-memory (no percentiles — add Supabase for prod)"}`);
   console.log(`  GitHub:  ${process.env.GITHUB_TOKEN ? "authenticated (5K req/hr)" : "anonymous (60 req/hr)"}`);
   console.log(`  CORS:    ${IS_PROD ? ALLOWED_ORIGINS.join(", ") || "⚠ NONE — set ALLOWED_ORIGINS!" : "localhost/*"}`);
-  console.log(`  Limits:  ${RATE_MAX_GENERATE} gen/hr, ${RATE_MAX_SHARE} share/hr per IP\n`);
+  console.log(`  Limits:  ${RATE_MAX_GENERATE} gen/hr, ${RATE_MAX_SHARE} share/hr per IP`);
+  console.log(`  Daily:   ${DAILY_REQUEST_CAP} reqs, ${DAILY_TOKEN_CAP.toLocaleString()} tokens, ${PER_IP_DAILY_CAP}/IP (server key)`);
+  console.log(`  BYOK:    users can provide their own Anthropic key via header or body\n`);
 
   if (supabase) {
     startPeriodicRecalc(supabase);

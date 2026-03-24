@@ -183,15 +183,46 @@ export async function parseResumeClientSide(
   return callAnthropic(trimmed, apiKey);
 }
 
+// ── Server-side BYOK (send user's key through server proxy) ─────────
+
+export async function parseResumeTextWithKey(text: string, apiKey: string): Promise<CharacterSheet> {
+  const res = await fetch("/api/parse-resume-text", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-anthropic-key": apiKey,
+    },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(typeof err.error === "string" ? err.error : "Failed to parse resume");
+  }
+  return res.json() as Promise<CharacterSheet>;
+}
+
 // ── Check server capability ─────────────────────────────────────────
 
-export async function checkServerHasKey(): Promise<boolean> {
+export interface ServerStatus {
+  hasApiKey: boolean;
+  serverKeyAvailable: boolean;
+  freeUsesRemaining: number;
+  freeUsesMax: number;
+  capReason: string | null;
+}
+
+export async function checkServerStatus(): Promise<ServerStatus> {
   try {
     const res = await fetch("/api/status");
-    if (!res.ok) return false;
-    const data = await res.json() as { hasApiKey: boolean };
-    return data.hasApiKey;
+    if (!res.ok) return { hasApiKey: false, serverKeyAvailable: false, freeUsesRemaining: 0, freeUsesMax: 0, capReason: null };
+    return await res.json() as ServerStatus;
   } catch {
-    return false;
+    return { hasApiKey: false, serverKeyAvailable: false, freeUsesRemaining: 0, freeUsesMax: 0, capReason: null };
   }
+}
+
+/** @deprecated Use checkServerStatus instead */
+export async function checkServerHasKey(): Promise<boolean> {
+  const status = await checkServerStatus();
+  return status.serverKeyAvailable;
 }
