@@ -10,6 +10,7 @@
  *   node scripts/seed.js --target 5000       # custom target
  *   node scripts/seed.js --resume            # skip users already in DB
  *   node scripts/seed.js --dry-run           # fetch but don't write to DB
+ *   node scripts/seed.js --recalc            # only recalculate percentile scores (no seeding)
  *
  * How it works:
  *   1. Uses GitHub Search API to discover top users by followers (multiple range queries)
@@ -37,21 +38,22 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROGRESS_FILE = resolve(__dirname, ".seed-progress.json");
 
 // ─── Config ─────────────────────────────────────────────────────────
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!GITHUB_TOKEN) { console.error("GITHUB_TOKEN is required for seeding (5K req/hr vs 60/hr)"); process.exit(1); }
-if (!SUPABASE_URL || !SUPABASE_KEY) { console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required"); process.exit(1); }
-
 const args = process.argv.slice(2);
 const TARGET = Number(args.find((_, i, a) => a[i - 1] === "--target") || 10000);
 const RESUME = args.includes("--resume");
 const DRY_RUN = args.includes("--dry-run");
 const COMMON = args.includes("--common");
+const RECALC_ONLY = args.includes("--recalc");
 const BATCH_SIZE = 25; // upsert batch size
 const DELAY_BETWEEN_USERS_MS = 1500; // ~2400 users/hr, well within 5K/hr limit
 const DELAY_BETWEEN_SEARCHES_MS = 2200; // stay under 30 search req/min
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) { console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required"); process.exit(1); }
+if (!RECALC_ONLY && !GITHUB_TOKEN) { console.error("GITHUB_TOKEN is required for seeding (5K req/hr vs 60/hr)"); process.exit(1); }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -502,6 +504,23 @@ function saveProgress(progress) {
 
 // ─── Main ───────────────────────────────────────────────────────────
 async function main() {
+  if (RECALC_ONLY) {
+    console.log("╔════════════════════════════════════════╗");
+    console.log("║    ResumeRPG Percentile Recalculator   ║");
+    console.log("╚════════════════════════════════════════╝");
+    console.log(`  Supabase:  ${SUPABASE_URL}\n`);
+
+    const { count } = await supabase
+      .from("github_cards")
+      .select("username", { count: "exact", head: true });
+    console.log(`  Cards in DB: ${count || 0}`);
+
+    await runPercentileRecalc();
+
+    console.log(`\n  ✅ Done. Percentiles recalculated across ${count || 0} cards.`);
+    return;
+  }
+
   console.log("╔════════════════════════════════════════╗");
   console.log("║       ResumeRPG Database Seeder        ║");
   console.log("╚════════════════════════════════════════╝");
