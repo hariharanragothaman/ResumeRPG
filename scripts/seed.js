@@ -48,6 +48,7 @@ const args = process.argv.slice(2);
 const TARGET = Number(args.find((_, i, a) => a[i - 1] === "--target") || 10000);
 const RESUME = args.includes("--resume");
 const DRY_RUN = args.includes("--dry-run");
+const COMMON = args.includes("--common");
 const BATCH_SIZE = 25; // upsert batch size
 const DELAY_BETWEEN_USERS_MS = 1500; // ~2400 users/hr, well within 5K/hr limit
 const DELAY_BETWEEN_SEARCHES_MS = 2200; // stay under 30 search req/min
@@ -180,6 +181,143 @@ async function discoverUsernames(target) {
   }
 
   console.log(`\n✅ Discovered ${usernames.size} unique usernames\n`);
+  return [...usernames];
+}
+
+// ─── Discover common users (low followers, genuine activity) ─────────
+async function discoverCommonUsernames(target) {
+  const usernames = new Set();
+
+  console.log(`\n🔍 Discovering common users (target: ${target})...\n`);
+
+  // Strategy 1: Repo-count x follower-range combos
+  const repoThresholds = [20, 15, 10, 7, 5, 3];
+  const followerCaps = ["0..2", "3..5", "6..9"];
+
+  for (const minRepos of repoThresholds) {
+    for (const fRange of followerCaps) {
+      if (usernames.size >= target) break;
+      for (let page = 1; page <= 10; page++) {
+        if (usernames.size >= target) break;
+        const q = encodeURIComponent(`followers:${fRange} repos:>=${minRepos} type:user`);
+        const url = `https://api.github.com/search/users?q=${q}&sort=repositories&order=desc&per_page=100&page=${page}`;
+        try {
+          const data = await ghFetch(url);
+          const items = data.items || [];
+          if (items.length === 0) break;
+          for (const u of items) {
+            if (u.login) usernames.add(u.login.toLowerCase());
+          }
+          console.log(`  followers:${fRange} repos:>=${minRepos} p${page} → ${usernames.size} total`);
+          if (items.length < 100) break;
+          await sleep(DELAY_BETWEEN_SEARCHES_MS);
+        } catch (e) {
+          console.warn(`  ⚠ Search failed: ${e.message}`);
+          await sleep(5000);
+          break;
+        }
+      }
+    }
+  }
+
+  // Strategy 2: Language-specific searches
+  const languages = [
+    "JavaScript", "Python", "Java", "Go", "Rust", "C", "C++", "TypeScript",
+    "Ruby", "PHP", "Swift", "Kotlin", "Scala", "R", "Dart", "Shell",
+    "Lua", "Elixir", "Haskell", "C#",
+  ];
+
+  for (const lang of languages) {
+    if (usernames.size >= target) break;
+    for (let page = 1; page <= 10; page++) {
+      if (usernames.size >= target) break;
+      const q = encodeURIComponent(`language:${lang} followers:0..9 repos:>=3 type:user`);
+      const url = `https://api.github.com/search/users?q=${q}&sort=repositories&order=desc&per_page=100&page=${page}`;
+      try {
+        const data = await ghFetch(url);
+        const items = data.items || [];
+        if (items.length === 0) break;
+        for (const u of items) {
+          if (u.login) usernames.add(u.login.toLowerCase());
+        }
+        console.log(`  language:${lang} p${page} → ${usernames.size} total`);
+        if (items.length < 100) break;
+        await sleep(DELAY_BETWEEN_SEARCHES_MS);
+      } catch (e) {
+        console.warn(`  ⚠ Search failed: ${e.message}`);
+        await sleep(5000);
+        break;
+      }
+    }
+  }
+
+  // Strategy 3: Created-date ranges
+  const dateRanges = [
+    "2024-01-01..2024-12-31", "2023-01-01..2023-12-31",
+    "2022-01-01..2022-12-31", "2021-01-01..2021-12-31",
+    "2020-01-01..2020-12-31", "2019-01-01..2019-12-31",
+    "2018-01-01..2018-12-31", "2015-01-01..2017-12-31",
+    "2012-01-01..2014-12-31", "2008-01-01..2011-12-31",
+  ];
+
+  for (const dateRange of dateRanges) {
+    if (usernames.size >= target) break;
+    for (let page = 1; page <= 10; page++) {
+      if (usernames.size >= target) break;
+      const q = encodeURIComponent(`created:${dateRange} followers:0..9 repos:>=3 type:user`);
+      const url = `https://api.github.com/search/users?q=${q}&sort=joined&order=desc&per_page=100&page=${page}`;
+      try {
+        const data = await ghFetch(url);
+        const items = data.items || [];
+        if (items.length === 0) break;
+        for (const u of items) {
+          if (u.login) usernames.add(u.login.toLowerCase());
+        }
+        console.log(`  created:${dateRange} p${page} → ${usernames.size} total`);
+        if (items.length < 100) break;
+        await sleep(DELAY_BETWEEN_SEARCHES_MS);
+      } catch (e) {
+        console.warn(`  ⚠ Search failed: ${e.message}`);
+        await sleep(5000);
+        break;
+      }
+    }
+  }
+
+  // Strategy 4: Location-based searches
+  const cities = [
+    "San Francisco", "New York", "London", "Berlin", "Tokyo", "Bangalore",
+    "Toronto", "Paris", "Amsterdam", "Sydney", "Singapore", "Seoul",
+    "Beijing", "Shanghai", "Mumbai", "Sao Paulo", "Lagos", "Nairobi",
+    "Stockholm", "Helsinki", "Austin", "Seattle", "Chicago", "Boston",
+    "Denver", "Dublin", "Zurich", "Tel Aviv", "Barcelona", "Warsaw",
+  ];
+
+  for (const city of cities) {
+    if (usernames.size >= target) break;
+    for (let page = 1; page <= 10; page++) {
+      if (usernames.size >= target) break;
+      const q = encodeURIComponent(`location:"${city}" followers:0..5 repos:>=3 type:user`);
+      const url = `https://api.github.com/search/users?q=${q}&sort=repositories&order=desc&per_page=100&page=${page}`;
+      try {
+        const data = await ghFetch(url);
+        const items = data.items || [];
+        if (items.length === 0) break;
+        for (const u of items) {
+          if (u.login) usernames.add(u.login.toLowerCase());
+        }
+        console.log(`  location:"${city}" p${page} → ${usernames.size} total`);
+        if (items.length < 100) break;
+        await sleep(DELAY_BETWEEN_SEARCHES_MS);
+      } catch (e) {
+        console.warn(`  ⚠ Search failed: ${e.message}`);
+        await sleep(5000);
+        break;
+      }
+    }
+  }
+
+  console.log(`\n✅ Discovered ${usernames.size} unique common usernames\n`);
   return [...usernames];
 }
 
@@ -368,6 +506,7 @@ async function main() {
   console.log("║       ResumeRPG Database Seeder        ║");
   console.log("╚════════════════════════════════════════╝");
   console.log(`  Target:    ${TARGET.toLocaleString()} users`);
+  console.log(`  Mode:      ${COMMON ? "common users (low followers)" : "top developers (high followers)"}`);
   console.log(`  Resume:    ${RESUME}`);
   console.log(`  Dry run:   ${DRY_RUN}`);
   console.log(`  Est. time: ~${Math.ceil(TARGET / 2400)} hours`);
@@ -386,7 +525,9 @@ async function main() {
   console.log(`  Already in DB: ${existingCount || 0}\n`);
 
   // Step 1: Discover usernames
-  const allUsernames = await discoverUsernames(TARGET + completedSet.size);
+  const allUsernames = COMMON
+    ? await discoverCommonUsernames(TARGET + completedSet.size)
+    : await discoverUsernames(TARGET + completedSet.size);
 
   // Filter out already-completed users
   const toProcess = RESUME

@@ -4,15 +4,33 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ResumeRPG — Your career, leveled up</title>
-    <meta name="description" content="Transform your resume or GitHub profile into a legendary RPG character card" />
-    <meta property="og:title" content="ResumeRPG — Your career, leveled up" />
-    <meta property="og:description" content="Transform your resume or GitHub profile into a legendary RPG character card" />
+
+    <!-- Dynamic: server replaces these for all routes -->
+    <title>__OG_TITLE__</title>
+    <meta name="description" content="__OG_DESCRIPTION__" />
+    <link rel="canonical" href="__OG_URL__" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="__OG_TITLE__" />
+    <meta property="og:description" content="__OG_DESCRIPTION__" />
+    <meta property="og:image" content="__OG_IMAGE__" />
+    <meta property="og:url" content="__OG_URL__" />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ResumeRPG" />
+
+    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="__OG_TITLE__" />
+    <meta name="twitter:description" content="__OG_DESCRIPTION__" />
+    <meta name="twitter:image" content="__OG_IMAGE__" />
+
+    <!-- JSON-LD structured data: injected by server -->
+    __JSONLD__
   </head>
   <body>
     <div id="root"></div>
+    <!-- Fallback for bots/crawlers that don't execute JS -->
+    <noscript>__NOSCRIPT__</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

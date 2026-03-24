@@ -16,7 +16,8 @@
     "lint": "eslint .",
     "seed": "node scripts/seed.js",
     "seed:small": "node scripts/seed.js --target 1000",
-    "seed:resume": "node scripts/seed.js --resume"
+    "seed:resume": "node scripts/seed.js --resume",
+    "seed:common": "node scripts/seed.js --common --target 40000"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

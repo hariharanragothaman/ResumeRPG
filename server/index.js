@@ -347,6 +347,71 @@ app.get("/api/gh-stats", async (req, res) => {
   res.json(stats);
 });
 
+// ─── SEO constants ──────────────────────────────────────────────────
+const SITE_URL = process.env.PUBLIC_SITE_URL || process.env.VITE_PUBLIC_SITE_URL || "https://gitrpgcard.com";
+
+// ─── SEO: robots.txt ────────────────────────────────────────────────
+app.get("/robots.txt", (_req, res) => {
+  res.set("Content-Type", "text/plain");
+  res.send([
+    "User-agent: *",
+    "Allow: /",
+    "",
+    "Disallow: /api/",
+    "",
+    `Sitemap: ${SITE_URL}/sitemap.xml`,
+  ].join("\n"));
+});
+
+// ─── SEO: sitemap.xml (dynamic from DB) ─────────────────────────────
+app.get("/sitemap.xml", async (_req, res) => {
+  const urls = [
+    { loc: SITE_URL + "/", priority: "1.0", changefreq: "daily" },
+    { loc: SITE_URL + "/privacy", priority: "0.3", changefreq: "monthly" },
+  ];
+
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from("github_cards")
+        .select("username, last_accessed_at")
+        .order("access_count", { ascending: false })
+        .limit(5000);
+
+      if (data) {
+        for (const row of data) {
+          urls.push({
+            loc: `${SITE_URL}/${row.username}`,
+            priority: "0.7",
+            changefreq: "weekly",
+            lastmod: row.last_accessed_at ? new Date(row.last_accessed_at).toISOString().split("T")[0] : undefined,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Sitemap DB query failed:", e.message);
+    }
+  }
+
+  const xml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...urls.map(u => [
+      "  <url>",
+      `    <loc>${u.loc}</loc>`,
+      u.lastmod ? `    <lastmod>${u.lastmod}</lastmod>` : "",
+      `    <changefreq>${u.changefreq}</changefreq>`,
+      `    <priority>${u.priority}</priority>`,
+      "  </url>",
+    ].filter(Boolean).join("\n")),
+    "</urlset>",
+  ].join("\n");
+
+  res.set("Content-Type", "application/xml");
+  res.set("Cache-Control", "public, max-age=3600");
+  res.send(xml);
+});
+
 // Badge & card image — new short routes + legacy /gh/ redirects
 async function badgeHandler(req, res) {
   try {
@@ -396,85 +461,189 @@ app.get("/gh/:username/card.png", (req, res) => {
   res.redirect(301, `/${req.params.username}/card.png`);
 });
 
-// ─── OG meta helper ─────────────────────────────────────────────────
+// ─── SEO helpers ────────────────────────────────────────────────────
 
-const RESERVED_PATHS = new Set(["privacy", "share", "api", "assets", "favicon.svg"]);
+const RESERVED_PATHS = new Set(["", "privacy", "about", "share", "api", "robots.txt", "sitemap.xml"]);
+const DEFAULT_TITLE = "ResumeRPG — Turn your GitHub profile into an RPG character card";
+const DEFAULT_DESC = "Every GitHub developer has a card. See your class, stats, rarity, and percentile ranking. Compare with friends. Embed a badge in your README. Export a print-ready trading card.";
 
-function looksLikeUsername(segment) {
+function isUsername(segment) {
+  if (!segment || RESERVED_PATHS.has(segment)) return false;
   return /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(segment);
 }
 
-async function lookupCardMeta(username) {
-  if (!supabase) return null;
-  const { data } = await supabase
-    .from("github_cards")
-    .select("character")
-    .eq("username", username.toLowerCase())
-    .single();
-  return data?.character || null;
+function escHtml(str) {
+  return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function buildOgTags(character, username, publicOrigin) {
-  const title = character
-    ? `@${username} — Lv.${character.level} ${character.class} | ResumeRPG`
-    : `@${username} | ResumeRPG`;
-  const description = character?.tagline
-    ? `"${character.tagline}" — ${character.rarity} ${character.class}`
-    : `See @${username}'s developer trading card on ResumeRPG`;
-  const image = `${publicOrigin}/${encodeURIComponent(username)}/card.png`;
-  const url = `${publicOrigin}/${encodeURIComponent(username)}`;
-
-  return [
-    `<meta property="og:title" content="${esc(title)}" />`,
-    `<meta property="og:description" content="${esc(description)}" />`,
-    `<meta property="og:image" content="${image}" />`,
-    `<meta property="og:url" content="${url}" />`,
-    `<meta property="og:type" content="profile" />`,
-    `<meta name="twitter:card" content="summary_large_image" />`,
-    `<meta name="twitter:title" content="${esc(title)}" />`,
-    `<meta name="twitter:description" content="${esc(description)}" />`,
-    `<meta name="twitter:image" content="${image}" />`,
-  ].join("\n    ");
+function homepageJsonLd() {
+  return JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "ResumeRPG",
+    "url": SITE_URL,
+    "description": DEFAULT_DESC,
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Web",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "featureList": [
+      "GitHub profile to RPG character card",
+      "Percentile ranking among indexed developers",
+      "Head-to-head developer comparison",
+      "Embeddable SVG badge for GitHub README",
+      "Exportable trading card PNG with QR code",
+      "5 visual themes including Dark Fantasy, Cyberpunk, and Corporate",
+    ],
+  });
 }
 
-function esc(s) {
-  return String(s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function cardJsonLd(character, username) {
+  return JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "ProfilePage",
+    "name": `${character.name} — ResumeRPG Card`,
+    "url": `${SITE_URL}/${username}`,
+    "description": character.backstory || `Level ${character.level} ${character.class}`,
+    "image": `${SITE_URL}/${username}/card.png`,
+    "mainEntity": {
+      "@type": "Person",
+      "name": character.name,
+      "jobTitle": character.title || "Developer",
+      "worksFor": character.guild ? { "@type": "Organization", "name": character.guild } : undefined,
+    },
+  });
 }
 
-const DEFAULT_OG = [
-  `<meta property="og:title" content="ResumeRPG — Your career, leveled up" />`,
-  `<meta property="og:description" content="Transform your resume or GitHub profile into a legendary RPG character card" />`,
-  `<meta property="og:type" content="website" />`,
-  `<meta name="twitter:card" content="summary_large_image" />`,
-].join("\n    ");
+function homepageNoscript() {
+  return `
+    <div style="max-width:600px;margin:40px auto;font-family:sans-serif;color:#333;padding:20px">
+      <h1>ResumeRPG — Turn your GitHub profile into an RPG character card</h1>
+      <p>${escHtml(DEFAULT_DESC)}</p>
+      <h2>How it works</h2>
+      <p>Visit <strong>${escHtml(SITE_URL)}/your-github-username</strong> to see your card. No signup needed.</p>
+      <h2>Features</h2>
+      <ul>
+        <li><strong>Automatic card generation</strong> from any GitHub profile</li>
+        <li><strong>6 professional stats</strong>: IMPACT, CRAFT, RANGE, TENURE, VISION, INFLUENCE</li>
+        <li><strong>Percentile ranking</strong> among indexed developers</li>
+        <li><strong>12 RPG classes</strong> mapped from your primary language</li>
+        <li><strong>Head-to-head duels</strong> — compare any two developers</li>
+        <li><strong>README badge</strong> — embed your card in your GitHub profile</li>
+        <li><strong>Trading card export</strong> — print-ready PNG with QR code</li>
+        <li><strong>5 themes</strong>: Dark Fantasy, Cyberpunk, Pixel Art, Anime, Corporate</li>
+      </ul>
+      <h2>Example</h2>
+      <p>Try <a href="${escHtml(SITE_URL)}/torvalds">${escHtml(SITE_URL)}/torvalds</a> to see Linus Torvalds' card.</p>
+      <h2>For career fairs</h2>
+      <p>Export your card as a trading card, print it, and hand it out. Recruiters scan the QR code to see your full interactive profile.</p>
+    </div>
+  `;
+}
 
-// ─── Static files (production) ──────────────────────────────────────
+function cardNoscript(character, username, percentiles) {
+  const stats = character.stats || {};
+  const total = Object.values(stats).reduce((a, b) => a + (b || 0), 0);
+  const pct = percentiles?.pct_overall != null ? ` — Top ${Math.max(1, Math.round(100 - percentiles.pct_overall))}%` : "";
+  return `
+    <div style="max-width:600px;margin:40px auto;font-family:sans-serif;color:#333;padding:20px">
+      <h1>${escHtml(character.name)} — Level ${character.level} ${escHtml(character.class)}${escHtml(pct)}</h1>
+      <p><strong>Rarity:</strong> ${escHtml(character.rarity)} | <strong>Guild:</strong> ${escHtml(character.guild)} | <strong>Power:</strong> ${total}/120</p>
+      <p><em>${escHtml(character.tagline)}</em></p>
+      <h2>Stats</h2>
+      <ul>
+        ${Object.entries(stats).map(([k, v]) => `<li><strong>${escHtml(k)}</strong>: ${v}/20</li>`).join("\n        ")}
+      </ul>
+      <h2>Skills</h2>
+      <p>${(character.skills || []).map(s => escHtml(s)).join(", ")}</p>
+      <h2>Backstory</h2>
+      <p>${escHtml(character.backstory)}</p>
+      <p><a href="${escHtml(SITE_URL)}/${escHtml(username)}">View interactive card</a> |
+         <a href="${escHtml(SITE_URL)}/${escHtml(username)}/card.png">Download card image</a></p>
+      <hr>
+      <p><a href="${escHtml(SITE_URL)}">Generate your own card at ResumeRPG</a></p>
+    </div>
+  `;
+}
+
+// ─── Static files + meta injection (production) ─────────────────────
 const distPath = resolve(__dirname, "..", "dist");
 if (IS_PROD && existsSync(distPath)) {
-  const rawHtml = readFileSync(resolve(distPath, "index.html"), "utf-8");
-  // Strip build-time default OG tags so the server can inject dynamic ones
-  const OG_TAG_RE = /<meta\s+(property="og:|name="twitter:)[^>]*>\s*/g;
-  const indexHtmlShell = rawHtml.replace(OG_TAG_RE, "");
+  const indexHtml = readFileSync(resolve(distPath, "index.html"), "utf-8");
 
   app.use(express.static(distPath, { maxAge: "7d", index: false }));
+
   app.get("*", async (req, res, next) => {
     if (req.path.startsWith("/api/")) return next();
-    if (req.path.endsWith(".svg") || req.path.endsWith(".png")) return next();
+    if (/\.(svg|png|js|css|ico|woff2?|ttf|map|json)$/.test(req.path)) return next();
 
-    const publicOrigin = process.env.VITE_PUBLIC_SITE_URL?.replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
-    const firstSegment = req.path.split("/").filter(Boolean)[0] || "";
+    const segments = req.path.split("/").filter(Boolean);
+    const maybeUsername = segments[0];
+    let title = DEFAULT_TITLE;
+    let desc = DEFAULT_DESC;
+    let image = `${SITE_URL}/favicon.svg`;
+    let url = SITE_URL + (req.path === "/" ? "" : req.path);
+    let jsonLd = `<script type="application/ld+json">${homepageJsonLd()}</script>`;
+    let noscript = homepageNoscript();
 
-    let ogMeta = DEFAULT_OG;
-    if (firstSegment && !RESERVED_PATHS.has(firstSegment) && looksLikeUsername(firstSegment)) {
+    if (maybeUsername && isUsername(maybeUsername)) {
       try {
-        const character = await lookupCardMeta(firstSegment);
-        ogMeta = buildOgTags(character, firstSegment, publicOrigin);
+        if (supabase) {
+          const { data } = await supabase
+            .from("github_cards")
+            .select("character, pct_overall")
+            .eq("username", maybeUsername.toLowerCase())
+            .single();
+
+          if (data?.character) {
+            const c = data.character;
+            const pctLabel = data.pct_overall != null ? ` · Top ${Math.max(1, Math.round(100 - data.pct_overall))}%` : "";
+            title = `${c.name} — Level ${c.level} ${c.class}${pctLabel} | ResumeRPG`;
+            desc = c.backstory || `A Level ${c.level} ${c.class} from ${c.guild}. Power: ${Object.values(c.stats || {}).reduce((a, b) => a + b, 0)}/120.`;
+            image = `${SITE_URL}/${maybeUsername.toLowerCase()}/card.png`;
+            jsonLd = `<script type="application/ld+json">${cardJsonLd(c, maybeUsername.toLowerCase())}</script>`;
+            noscript = cardNoscript(c, maybeUsername.toLowerCase(), data);
+
+            if (segments[1] === "vs" && segments[2]) {
+              const { data: other } = await supabase
+                .from("github_cards")
+                .select("character")
+                .eq("username", segments[2].toLowerCase())
+                .single();
+              if (other?.character) {
+                title = `${c.name} vs ${other.character.name} — Duel | ResumeRPG`;
+                desc = `Who wins? ${c.name} (Level ${c.level} ${c.class}) vs ${other.character.name} (Level ${other.character.level} ${other.character.class})`;
+              }
+            }
+          } else {
+            title = `@${maybeUsername} — ResumeRPG`;
+            desc = `Generate an RPG character card for GitHub user @${maybeUsername}. See stats, class, rarity, and percentile ranking.`;
+            noscript = `<div style="max-width:600px;margin:40px auto;font-family:sans-serif;padding:20px">
+              <h1>@${escHtml(maybeUsername)} — ResumeRPG</h1>
+              <p>This developer's RPG card is being generated. <a href="${escHtml(SITE_URL)}/${escHtml(maybeUsername)}">View card</a></p>
+              <p><a href="${escHtml(SITE_URL)}">Generate your own card</a></p>
+            </div>`;
+            jsonLd = "";
+          }
+        }
       } catch {
-        ogMeta = buildOgTags(null, firstSegment, publicOrigin);
+        // DB error — use defaults
       }
     }
 
-    const html = indexHtmlShell.replace("</head>", `    ${ogMeta}\n  </head>`);
+    if (segments[0] === "privacy") {
+      title = "Privacy Policy | ResumeRPG";
+      desc = "ResumeRPG privacy policy. We don't store your resume text — only the generated character card.";
+      jsonLd = "";
+    }
+
+    const html = indexHtml
+      .replace(/__OG_TITLE__/g, escHtml(title))
+      .replace(/__OG_DESCRIPTION__/g, escHtml(desc))
+      .replace(/__OG_IMAGE__/g, escHtml(image))
+      .replace(/__OG_URL__/g, escHtml(url))
+      .replace(/__JSONLD__/g, jsonLd)
+      .replace(/__NOSCRIPT__/g, noscript);
+
     res.set("Content-Type", "text/html");
     res.send(html);
   });
