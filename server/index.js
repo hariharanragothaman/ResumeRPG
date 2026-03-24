@@ -464,8 +464,8 @@ app.get("/gh/:username/card.png", (req, res) => {
 // ─── SEO helpers ────────────────────────────────────────────────────
 
 const RESERVED_PATHS = new Set(["", "privacy", "about", "share", "api", "robots.txt", "sitemap.xml"]);
-const DEFAULT_TITLE = "ResumeRPG — Turn your GitHub profile into an RPG character card";
-const DEFAULT_DESC = "Every GitHub developer has a card. See your class, stats, rarity, and percentile ranking. Compare with friends. Embed a badge in your README. Export a print-ready trading card.";
+const DEFAULT_TITLE = "ResumeRPG — Turn your GitHub profile or resume into an RPG character card";
+const DEFAULT_DESC = "Generate an RPG character card from your GitHub profile or resume. See your class, stats, rarity, and percentile ranking. Compare with friends. Embed a badge in your README. Upload a PDF or paste your resume for an AI-powered character sheet.";
 
 function isUsername(segment) {
   if (!segment || RESERVED_PATHS.has(segment)) return false;
@@ -488,6 +488,7 @@ function homepageJsonLd() {
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
     "featureList": [
       "GitHub profile to RPG character card",
+      "Resume or PDF to RPG character card (AI-powered)",
       "Percentile ranking among indexed developers",
       "Head-to-head developer comparison",
       "Embeddable SVG badge for GitHub README",
@@ -517,16 +518,20 @@ function cardJsonLd(character, username) {
 function homepageNoscript() {
   return `
     <div style="max-width:600px;margin:40px auto;font-family:sans-serif;color:#333;padding:20px">
-      <h1>ResumeRPG — Turn your GitHub profile into an RPG character card</h1>
+      <h1>ResumeRPG — Turn your GitHub profile or resume into an RPG character card</h1>
       <p>${escHtml(DEFAULT_DESC)}</p>
-      <h2>How it works</h2>
-      <p>Visit <strong>${escHtml(SITE_URL)}/your-github-username</strong> to see your card. No signup needed.</p>
+      <h2>Two ways to generate your card</h2>
+      <ol>
+        <li><strong>GitHub profile</strong> — Visit <strong>${escHtml(SITE_URL)}/your-github-username</strong> to instantly generate a card from your public GitHub data. No signup needed.</li>
+        <li><strong>Resume / PDF</strong> — Paste your resume text or upload a PDF on the homepage. An AI analyzes your experience and generates a personalized RPG character sheet.</li>
+      </ol>
       <h2>Features</h2>
       <ul>
         <li><strong>Automatic card generation</strong> from any GitHub profile</li>
+        <li><strong>AI-powered resume parsing</strong> — upload a PDF or paste text</li>
         <li><strong>6 professional stats</strong>: IMPACT, CRAFT, RANGE, TENURE, VISION, INFLUENCE</li>
         <li><strong>Percentile ranking</strong> among indexed developers</li>
-        <li><strong>12 RPG classes</strong> mapped from your primary language</li>
+        <li><strong>12 RPG classes</strong> mapped from your primary language or role</li>
         <li><strong>Head-to-head duels</strong> — compare any two developers</li>
         <li><strong>README badge</strong> — embed your card in your GitHub profile</li>
         <li><strong>Trading card export</strong> — print-ready PNG with QR code</li>
