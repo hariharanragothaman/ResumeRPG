@@ -574,7 +574,7 @@ if (IS_PROD && existsSync(distPath)) {
 
   app.get("*", async (req, res, next) => {
     if (req.path.startsWith("/api/")) return next();
-    if (/\.(svg|png|js|css|ico|woff2?|ttf|map|json)$/.test(req.path)) return next();
+    if (/\.(svg|png|js|css|ico|html|woff2?|ttf|map|json)$/.test(req.path)) return next();
 
     const segments = req.path.split("/").filter(Boolean);
     const maybeUsername = segments[0];
